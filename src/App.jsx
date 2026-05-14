@@ -624,7 +624,8 @@ export default function FamilyCalendar() {
 
             <div style={{ marginBottom:16 }}>
               <div style={{ fontSize:"12px", fontWeight:"700", color:"#9A8FAA", marginBottom:8 }}>アイコン</div>
-              <div style={{ display:"flex", gap:8, flexWrap:"wrap", maxWidth:"100%", overflowX:"hidden" }}> (
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap", maxWidth:"100%", overflowX:"hidden" }}>
+                {EVENT_EMOJIS.map(em => (
                   <button key={em} onClick={() => setForm(f => ({ ...f, emoji:em }))} style={{
                     width:36, height:36, borderRadius:"10px",
                     border: form.emoji===em?"2px solid #9B59B6":"2px solid transparent",
