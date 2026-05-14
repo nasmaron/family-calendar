@@ -659,6 +659,7 @@ export default function FamilyCalendar() {
             <div style={{ marginBottom:14 }}>
               <div style={{ fontSize:"12px", fontWeight:"700", color:"#9A8FAA", marginBottom:8 }}>参加メンバー</div>
               <div style={{ display:"flex", gap:8, flexWrap:"wrap", maxWidth:"100%", overflowX:"hidden" }}>
+                {members.map(m => (
                   <button key={m.id} onClick={() => setForm(f => ({
                     ...f, members: f.members.includes(m.id)
                       ? f.members.filter(x => x!==m.id) : [...f.members, m.id]
