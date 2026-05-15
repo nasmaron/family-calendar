@@ -605,33 +605,34 @@ export default function FamilyCalendar() {
           <div style={{ fontSize:"12px", fontWeight:"700", color:"#9A8FAA", marginBottom:12, letterSpacing:"1px" }}>カテゴリー</div>
           {categories.map(cat => (
             <div key={cat.id} style={{
-              display:"flex", alignItems:"center", gap:12,
               background:bgCard, borderRadius:"14px", padding:"12px 14px", marginBottom:8,
               border:`1px solid ${border}`,
             }}>
-              <div style={{ width:20, height:20, borderRadius:"50%", background:cat.color, flexShrink:0 }} />
-              <input value={cat.name} onChange={e => {
-                const newCats = categories.map(c => c.id===cat.id ? { ...c, name:e.target.value } : c);
-                setCategories(newCats); saveCategories(newCats);
-              }} style={{
-                flex:1, background:"transparent", border:"none", outline:"none",
-                fontSize:"15px", fontWeight:"600", color:textPri,
-              }} />
-              <div style={{ display:"flex", gap:4 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:8 }}>
+                <div style={{ width:20, height:20, borderRadius:"50%", background:cat.color, flexShrink:0 }} />
+                <input value={cat.name} onChange={e => {
+                  const newCats = categories.map(c => c.id===cat.id ? { ...c, name:e.target.value } : c);
+                  setCategories(newCats); saveCategories(newCats);
+                }} style={{
+                  flex:1, background:"transparent", border:"none", outline:"none",
+                  fontSize:"15px", fontWeight:"600", color:textPri,
+                }} />
+                <button onClick={() => {
+                  const newCats = categories.filter(c => c.id !== cat.id);
+                  setCategories(newCats); saveCategories(newCats);
+                }} style={{ background:"none", border:"none", color:"#e74c3c", fontSize:"16px", cursor:"pointer" }}>×</button>
+              </div>
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
                 {["#FF6B9D","#FF8C42","#FFD93D","#6BCB77","#4ECDC4","#4D96FF","#9B59B6","#E74C3C","#A8E6CF","#5F27CD","#00BCD4","#FF5722"].map(c => (
                   <div key={c} onClick={() => {
                     const newCats = categories.map(x => x.id===cat.id ? { ...x, color:c } : x);
                     setCategories(newCats); saveCategories(newCats);
                   }} style={{
-                    width:16, height:16, borderRadius:"50%", background:c, cursor:"pointer",
-                    outline: cat.color===c ? `2px solid ${c}` : "none", outlineOffset:2,
+                    width:20, height:20, borderRadius:"50%", background:c, cursor:"pointer",
+                    outline: cat.color===c ? `2px solid ${c}` : "none", outlineOffset:2, flexShrink:0,
                   }} />
                 ))}
               </div>
-              <button onClick={() => {
-                const newCats = categories.filter(c => c.id !== cat.id);
-                setCategories(newCats); saveCategories(newCats);
-              }} style={{ background:"none", border:"none", color:"#e74c3c", fontSize:"16px", cursor:"pointer" }}>×</button>
             </div>
           ))}
           <button onClick={() => {
