@@ -170,7 +170,7 @@ function MonthView({
   };
 
   return (
-    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", touchAction:"none" }}
+    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", touchAction:"none", width:"100%", boxSizing:"border-box" }}
       onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
     >
       <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", flexShrink:0, borderBottom:`1px solid ${border}` }}>
@@ -182,7 +182,8 @@ function MonthView({
       <div style={{ flex:1, display:"grid", gridTemplateColumns:"repeat(7,1fr)",
         gridTemplateRows:`repeat(${weeks}, 1fr)`,
         transform:`translateX(${dragX}px)`,
-        transition: transitioning ? "transform 0.2s ease" : "none" }}>
+        transition: transitioning ? "transform 0.2s ease" : "none",
+        width:"100%", overflow:"hidden" }}>
         {cells.map((d, idx) => {
           if (!d) return <div key={"e"+idx} style={{ borderRight:`1px solid ${border}`, borderBottom:`1px solid ${border}`, background:bgSub }} />;
           const ds = dateStr(d);
@@ -760,7 +761,7 @@ export default function FamilyCalendar() {
         </div>
       </div>
 
-      <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", background:bg }}>
+      <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", background:bg, width:"100%", boxSizing:"border-box" }}>
         {view==="month" && <MonthView
           firstDay={firstDay} daysInMonth={daysInMonth} dateStr={dateStr}
           todayStr={todayStr} selectedDate={selectedDate} setSelectedDate={setSelectedDate}
