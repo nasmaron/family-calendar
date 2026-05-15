@@ -55,6 +55,106 @@ const EVENT_EMOJIS = ["📅","🎂","🎵","⚽","🌸","✈️","🏠","🍽️
 const DAYS_JP = ["日","月","火","水","木","金","土"];
 const MONTHS_JP = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
 
+// 春分・秋分の日を天文計算で求める
+function getShunbun(year) {
+  const x = year >= 2000
+    ? 20.8431 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4)
+    : 20.8357 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4);
+  return Math.floor(x);
+}
+function getShubun(year) {
+  const x = year >= 2000
+    ? 23.2488 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4)
+    : 23.2588 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4);
+  return Math.floor(x);
+}
+// 第n月曜日
+function nthMonday(year, month, n) {
+  let count = 0;
+  for (let d = 1; d <= 31; d++) {
+    const dt = new Date(year, month - 1, d);
+    if (dt.getMonth() !== month - 1) break;
+    if (dt.getDay() === 1) { count++; if (count === n) return d; }
+  }
+}
+function pad(n) { return String(n).padStart(2, "0"); }
+function fmt(y, m, d) { return y + "-" + pad(m) + "-" + pad(d); }
+
+function getHolidaysForYear(year) {
+  const h = {};
+  if (year < 1948) return h;
+
+  // 固定祝日
+  h[fmt(year,1,1)]  = "元日";
+  h[fmt(year,2,11)] = "建国記念の日";
+  h[fmt(year,4,29)] = year >= 2007 ? "昭和の日" : year >= 1989 ? "みどりの日" : "天皇誕生日";
+  h[fmt(year,5,3)]  = "憲法記念日";
+  h[fmt(year,5,4)]  = year >= 2007 ? "みどりの日" : "国民の休日";
+  h[fmt(year,5,5)]  = "こどもの日";
+  h[fmt(year,8,11)] = "山の日"; // 2016〜
+  h[fmt(year,11,3)] = "文化の日";
+  h[fmt(year,11,23)]= "勤労感謝の日";
+  if (year >= 1989) h[fmt(year,2,23)] = "天皇誕生日";
+  if (year <= 1988) h[fmt(year,4,29)] = "天皇誕生日";
+
+  // 春分・秋分
+  h[fmt(year,3,getShunbun(year))] = "春分の日";
+  h[fmt(year,9,getShubun(year))]  = "秋分の日";
+
+  // ハッピーマンデー（2000年〜）
+  if (year >= 2000) {
+    h[fmt(year,1,nthMonday(year,1,2))]  = "成人の日";
+    h[fmt(year,7,nthMonday(year,7,3))]  = "海の日";
+    h[fmt(year,9,nthMonday(year,9,3))]  = "敬老の日";
+    h[fmt(year,10,nthMonday(year,10,2))]= "スポーツの日";
+  } else {
+    h[fmt(year,1,15)]  = "成人の日";
+    h[fmt(year,7,20)]  = "海の日";
+    h[fmt(year,9,15)]  = "敬老の日";
+    h[fmt(year,10,10)] = "体育の日";
+  }
+
+  // 振替休日・国民の休日を計算
+  const keys = Object.keys(h).sort();
+  const extra = {};
+  keys.forEach(k => {
+    const dt = new Date(k);
+    if (dt.getDay() === 0) { // 日曜祝日→翌月曜が振替
+      let next = new Date(dt); next.setDate(next.getDate()+1);
+      while (h[fmt(next.getFullYear(),next.getMonth()+1,next.getDate())] || extra[fmt(next.getFullYear(),next.getMonth()+1,next.getDate())]) {
+        next.setDate(next.getDate()+1);
+      }
+      extra[fmt(next.getFullYear(),next.getMonth()+1,next.getDate())] = "振替休日";
+    }
+  });
+  // 国民の休日（祝日に挟まれた平日）
+  const allKeys = [...keys, ...Object.keys(extra)].sort();
+  for (let i = 1; i < allKeys.length - 1; i++) {
+    const prev = new Date(allKeys[i-1]);
+    const curr = new Date(allKeys[i]);
+    const next = new Date(allKeys[i+1]);
+    const diffP = (curr - prev) / 86400000;
+    const diffN = (next - curr) / 86400000;
+    if (diffP === 2 && diffN === 2 && curr.getDay() !== 0) {
+      const mid = new Date(prev); mid.setDate(prev.getDate()+1);
+      const mk = fmt(mid.getFullYear(),mid.getMonth()+1,mid.getDate());
+      if (!h[mk] && !extra[mk]) extra[mk] = "国民の休日";
+    }
+  }
+  return { ...h, ...extra };
+}
+
+// キャッシュ付き祝日取得
+const _holidayCache = {};
+function getHoliday(dateStr) {
+  const year = Number(dateStr.slice(0,4));
+  if (!_holidayCache[year]) _holidayCache[year] = getHolidaysForYear(year);
+  return _holidayCache[year][dateStr] || null;
+}
+
+
+
+
 const defaultEvents = [
   { id: "e1", title: "家族でピクニック", date: "2026-05-17", members: ["mom","dad","child1","child2"], color: "#6BCB77", emoji: "🌳", memo: "お弁当を持参" },
   { id: "e2", title: "太郎 サッカー練習", date: "2026-05-19", members: ["child1"], color: "#4D96FF", emoji: "⚽", memo: "" },
@@ -190,6 +290,7 @@ function MonthView({
           const dayEvents = getEventsForDate(ds);
           const isToday = ds===todayStr;
           const dow = (firstDay + d - 1) % 7;
+          const holiday = getHoliday(ds);
           const handleTap = () => {
             const now = Date.now();
             if (selectedDate === ds) {
@@ -204,13 +305,20 @@ function MonthView({
           return (
             <div key={ds} onClick={handleTap}
               style={{ borderRight:`1px solid ${border}`, borderBottom:`1px solid ${border}`,
-                padding:"2px", cursor:"pointer", overflow:"hidden",
-                background: selectedDate===ds?themeColor+"33":bg }}>
+                padding:"2px", cursor:"pointer", overflow:"hidden", position:"relative",
+                background: selectedDate===ds ? themeColor+"33" : holiday ? "#FF6B9D11" : bg }}>
               <div style={{ width:20, height:20, borderRadius:"50%",
                 display:"flex", alignItems:"center", justifyContent:"center",
                 background: isToday?themeColor:"transparent",
-                color: isToday?"#fff": dow===0?"#FF6B9D": dow===6?"#4D96FF":textPri,
+                color: isToday?"#fff": holiday?"#FF6B9D": dow===0?"#FF6B9D": dow===6?"#4D96FF":textPri,
                 fontWeight: isToday?"700":"400", fontSize:"11px", marginBottom:1 }}>{d}</div>
+              {holiday && (
+                <div style={{
+                  fontSize:"7px", color:"#FF6B9D", fontWeight:"600",
+                  lineHeight:"1.2", paddingLeft:1, marginBottom:1,
+                  overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+                }}>{holiday}</div>
+              )}
               {dayEvents.slice(0,3).map(ev => (
                 <div key={ev.id} onClick={e => e.stopPropagation()}
                   style={{ background:ev.color, borderRadius:"3px", padding:"1px 3px", marginBottom:1,
