@@ -375,12 +375,12 @@ export default function FamilyCalendar() {
   const themeGrad = `linear-gradient(135deg, ${themeColor} 0%, ${themeColor2} 100%)`;
 
   // ダークモード用カラートークン
-  const bg      = darkMode ? "#1a1a2e" : "#fff";
-  const bgSub   = darkMode ? "#16213e" : "#faf7ff";
-  const bgCard  = darkMode ? "#0f3460" : "#fff";
+  const bg      = darkMode ? "#0f1123" : "#fff";
+  const bgSub   = darkMode ? "#141830" : "#faf7ff";
+  const bgCard  = darkMode ? "#1e2a4a" : "#fff";
   const border  = darkMode ? "#2a2a4a" : "#f0e6ff";
-  const textPri = darkMode ? "#e0e0ff" : "#3D2B5E";
-  const textSec = darkMode ? "#8888aa" : "#9A8FAA";
+  const textPri = darkMode ? "#ffffff" : "#3D2B5E";
+  const textSec = darkMode ? "#bbbbdd" : "#9A8FAA";
 
   useEffect(() => {
     (async () => {
@@ -500,12 +500,12 @@ export default function FamilyCalendar() {
     const dayEvents = selectedDate ? getEventsForDate(selectedDate) : [];
     const dp = selectedDate ? selectedDate.split("-") : [];
     return (
-      <div style={{ flex:1, overflow:"auto", padding:"16px" }}>
+      <div style={{ flex:1, overflow:"auto", padding:"16px", background:bg }}>
         {selectedDate && (
           <div style={{ marginBottom:16 }}>
-            <div style={{ fontSize:"22px", fontWeight:"800", color:"#3D2B5E" }}>
+            <div style={{ fontSize:"22px", fontWeight:"800", color:textPri }}>
               {dp[1]}月{dp[2]}日
-              <span style={{ fontSize:"14px", color:"#9A8FAA", marginLeft:8 }}>{DAYS_JP[new Date(selectedDate).getDay()]}曜日</span>
+              <span style={{ fontSize:"14px", color:textSec, marginLeft:8 }}>{DAYS_JP[new Date(selectedDate).getDay()]}曜日</span>
             </div>
           </div>
         )}
@@ -531,7 +531,7 @@ export default function FamilyCalendar() {
                   <span style={{ fontSize:"24px" }}>{ev.emoji}</span>
                   <div style={{ fontWeight:"700", fontSize:"16px", color:textPri }}>{ev.title}</div>
                 </div>
-                {ev.memo && <div style={{ fontSize:"13px", color:"#9A8FAA", marginBottom:8 }}>{ev.memo}</div>}
+                {ev.memo && <div style={{ fontSize:"13px", color:textSec, marginBottom:8 }}>{ev.memo}</div>}
                 <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
                   {ev.members.map(mid => {
                     const m = members.find(x => x.id===mid);
@@ -562,7 +562,7 @@ export default function FamilyCalendar() {
     const grouped = {};
     monthEvents.forEach(ev => { if (!grouped[ev.date]) grouped[ev.date]=[]; grouped[ev.date].push(ev); });
     return (
-      <div style={{ flex:1, overflow:"auto", padding:"16px" }}>
+      <div style={{ flex:1, overflow:"auto", padding:"16px", background:bg }}>
         {Object.keys(grouped).length===0 ? (
           <div style={{ textAlign:"center", padding:"48px 0", color:"#C9B8E8" }}>
             <div style={{ fontSize:"48px", marginBottom:12 }}>📋</div>
@@ -572,7 +572,7 @@ export default function FamilyCalendar() {
           const dp = date.split("-");
           return (
             <div key={date} style={{ marginBottom:20 }}>
-              <div style={{ fontWeight:"800", fontSize:"14px", color:"#9B59B6", marginBottom:8, paddingLeft:4 }}>
+              <div style={{ fontWeight:"800", fontSize:"14px", color:themeColor, marginBottom:8, paddingLeft:4 }}>
                 {dp[1]}月{dp[2]}日（{DAYS_JP[new Date(date).getDay()]}）
               </div>
               {evs.map(ev => (
@@ -585,8 +585,8 @@ export default function FamilyCalendar() {
                   }}>
                   <span style={{ fontSize:"22px" }}>{ev.emoji}</span>
                   <div style={{ flex:1 }}>
-                    <div style={{ fontWeight:"700", color:"#3D2B5E", fontSize:"15px" }}>{ev.title}</div>
-                    {ev.memo && <div style={{ fontSize:"12px", color:"#9A8FAA" }}>{ev.memo}</div>}
+                    <div style={{ fontWeight:"700", color:textPri, fontSize:"15px" }}>{ev.title}</div>
+                    {ev.memo && <div style={{ fontSize:"12px", color:textSec }}>{ev.memo}</div>}
                   </div>
                   <div style={{ display:"flex", gap:4 }}>
                     {ev.members.map(mid => {
