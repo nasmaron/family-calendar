@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const SUPABASE_URL = "https://nkjioctnuuebomqxxlvb.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5ramlvY3RudXVlYm9tcXh4bHZiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3NTk4MTgsImV4cCI6MjA5NDMzNTgxOH0.rV7j1OjN_Iy4aRq1tSWinhINRxut1vHrYcFetO6mymc";
@@ -63,7 +63,7 @@ const defaultEvents = [
 function getDaysInMonth(y, m) { return new Date(y, m + 1, 0).getDate(); }
 function getFirstDay(y, m) { return new Date(y, m, 1).getDay(); }
 
-function MemberEditForm({ memberForm, setMemberForm, isNewMember, onSave, onDelete, onBack }) {
+function MemberEditForm({ memberForm, setMemberForm, isNewMember, onSave, onDelete, onBack, themeGrad }) {
   return (
     <div style={{ flex:1, overflow:"auto", padding:"20px 16px" }}>
       <div style={{ display:"flex", justifyContent:"center", marginBottom:24 }}>
@@ -133,6 +133,91 @@ function MemberEditForm({ memberForm, setMemberForm, isNewMember, onSave, onDele
   );
 }
 
+function MonthView({
+  firstDay, daysInMonth, dateStr, todayStr, selectedDate, setSelectedDate,
+  getEventsForDate, setView, dragX, setDragX, transitioning, setTransitioning,
+  prevMonth, nextMonth, border, bgSub, bg, themeColor, textPri, badgeFontSize,
+  DAYS_JP
+}) {
+  const lastTap = useRef({ ds: null, time: 0 });
+  const touchStart = useRef(null);
+  const cells = [];
+  for (let i = 0; i < firstDay; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  const weeks = Math.ceil((firstDay + daysInMonth) / 7);
+
+  const onTouchStart = (e) => { touchStart.current = e.touches[0].clientX; setDragX(0); };
+  const onTouchMove = (e) => {
+    if (touchStart.current === null) return;
+    setDragX(e.touches[0].clientX - touchStart.current);
+  };
+  const onTouchEnd = (e) => {
+    if (touchStart.current === null) return;
+    const diff = e.changedTouches[0].clientX - touchStart.current;
+    if (Math.abs(diff) > 60) {
+      setTransitioning(true);
+      setDragX(diff > 0 ? window.innerWidth : -window.innerWidth);
+      setTimeout(() => { diff > 0 ? prevMonth() : nextMonth(); setDragX(0); setTransitioning(false); }, 200);
+    } else {
+      setTransitioning(true); setDragX(0);
+      setTimeout(() => setTransitioning(false), 200);
+    }
+    touchStart.current = null;
+  };
+
+  return (
+    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", touchAction:"pan-y" }}
+      onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
+    >
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", flexShrink:0, borderBottom:`1px solid ${border}` }}>
+        {DAYS_JP.map((d,i) => (
+          <div key={d} style={{ background:bg, textAlign:"center", lineHeight:"24px", fontSize:"11px", fontWeight:"700",
+            color: i===0?"#FF6B9D": i===6?"#4D96FF":"#9A8FAA" }}>{d}</div>
+        ))}
+      </div>
+      <div style={{ flex:1, display:"grid", gridTemplateColumns:"repeat(7,1fr)",
+        gridTemplateRows:`repeat(${weeks}, 1fr)`,
+        transform:`translateX(${dragX}px)`,
+        transition: transitioning ? "transform 0.2s ease" : "none" }}>
+        {cells.map((d, idx) => {
+          if (!d) return <div key={"e"+idx} style={{ borderRight:`1px solid ${border}`, borderBottom:`1px solid ${border}`, background:bgSub }} />;
+          const ds = dateStr(d);
+          const dayEvents = getEventsForDate(ds);
+          const isToday = ds===todayStr;
+          const dow = (firstDay + d - 1) % 7;
+          const handleTap = () => {
+            const now = Date.now();
+            if (lastTap.current.ds === ds && now - lastTap.current.time < 300) {
+              setSelectedDate(ds); setView("day");
+            } else { setSelectedDate(ds); }
+            lastTap.current = { ds, time: now };
+          };
+          return (
+            <div key={ds} onClick={handleTap}
+              style={{ borderRight:`1px solid ${border}`, borderBottom:`1px solid ${border}`,
+                padding:"2px", cursor:"pointer", overflow:"hidden",
+                background: selectedDate===ds?themeColor+"33":bg }}>
+              <div style={{ width:20, height:20, borderRadius:"50%",
+                display:"flex", alignItems:"center", justifyContent:"center",
+                background: isToday?themeColor:"transparent",
+                color: isToday?"#fff": dow===0?"#FF6B9D": dow===6?"#4D96FF":textPri,
+                fontWeight: isToday?"700":"400", fontSize:"11px", marginBottom:1 }}>{d}</div>
+              {dayEvents.slice(0,3).map(ev => (
+                <div key={ev.id} onClick={e => e.stopPropagation()}
+                  style={{ background:ev.color, borderRadius:"3px", padding:"1px 3px", marginBottom:1,
+                    fontSize:badgeFontSize+"px", color:"#fff", fontWeight:"600",
+                    whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
+                    width:"100%", boxSizing:"border-box" }}>{ev.title}</div>
+              ))}
+              {dayEvents.length > 3 && <div style={{ fontSize:"8px", color:"#9B59B6", fontWeight:"700", paddingLeft:2 }}>+{dayEvents.length-3}</div>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function FamilyCalendar() {
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
@@ -143,7 +228,7 @@ export default function FamilyCalendar() {
   const [members, setMembers] = useState(DEFAULT_MEMBERS);
   const [view, setView] = useState("month");
   const [selectedDate, setSelectedDate] = useState(null);
-  const [filterMember, setFilterMember] = useState("all");
+  const [filterMembers, setFilterMembers] = useState([]);  // 空=全員
   const [saving, setSaving] = useState(false);
   const [notification, setNotification] = useState(null);
 
@@ -152,7 +237,8 @@ export default function FamilyCalendar() {
   const [form, setForm] = useState({ title:"", date:"", members:[], color:"#4D96FF", emoji:"📅", memo:"" });
 
   const [showSettings, setShowSettings] = useState(false);
-  const [editingMember, setEditingMember] = useState(null);
+  const [dragX, setDragX] = useState(0);
+  const [transitioning, setTransitioning] = useState(false);  const [editingMember, setEditingMember] = useState(null);
   const [memberForm, setMemberForm] = useState({ name:"", color:"#FF6B9D", emoji:"🌸" });
   const [isNewMember, setIsNewMember] = useState(false);
   const [badgeFontSize, setBadgeFontSize] = useState(() => {
@@ -164,7 +250,18 @@ export default function FamilyCalendar() {
   const [themeColor2, setThemeColor2] = useState(() => {
     try { return localStorage.getItem("theme_color2") || "#E91E8C"; } catch { return "#E91E8C"; }
   });
+  const [darkMode, setDarkMode] = useState(() => {
+    try { return localStorage.getItem("dark_mode") === "1"; } catch { return false; }
+  });
   const themeGrad = `linear-gradient(135deg, ${themeColor} 0%, ${themeColor2} 100%)`;
+
+  // ダークモード用カラートークン
+  const bg      = darkMode ? "#1a1a2e" : "#fff";
+  const bgSub   = darkMode ? "#16213e" : "#faf7ff";
+  const bgCard  = darkMode ? "#0f3460" : "#fff";
+  const border  = darkMode ? "#2a2a4a" : "#f0e6ff";
+  const textPri = darkMode ? "#e0e0ff" : "#3D2B5E";
+  const textSec = darkMode ? "#8888aa" : "#9A8FAA";
 
   useEffect(() => {
     (async () => {
@@ -257,7 +354,7 @@ export default function FamilyCalendar() {
   const nextMonth = () => { if (month===11){setYear(y=>y+1);setMonth(0);}else setMonth(m=>m+1); };
   const dateStr = (d) => `${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
   const getEventsForDate = (ds) =>
-    events.filter(e => e.date===ds && (filterMember==="all" || e.members.includes(filterMember)));
+    events.filter(e => e.date===ds && (filterMembers.length===0 || e.members.some(m => filterMembers.includes(m))));
 
   const daysInMonth = getDaysInMonth(year, month);
   const firstDay = getFirstDay(year, month);
@@ -270,64 +367,6 @@ export default function FamilyCalendar() {
     boxShadow:"0 4px 15px rgba(155,89,182,0.3)",
   };
 
-  const MonthView = () => {
-    const cells = [];
-    for (let i = 0; i < firstDay; i++) cells.push(null);
-    for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-    return (
-      <div style={{ flex:1, overflow:"auto" }}>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gridTemplateRows:"24px", gridAutoRows:"80px" }}>
-          {DAYS_JP.map((d,i) => (
-            <div key={d} style={{
-              position:"sticky", top:0, zIndex:10,
-              background:"#fff", borderBottom:"1px solid #f0e6ff",
-              textAlign:"center", lineHeight:"24px", fontSize:"11px", fontWeight:"700",
-              color: i===0?"#FF6B9D": i===6?"#4D96FF":"#9A8FAA",
-            }}>{d}</div>
-          ))}
-          {cells.map((d, idx) => {
-            if (!d) return <div key={"e"+idx} style={{ borderRight:"1px solid #f0e6ff", borderBottom:"1px solid #f0e6ff", background:"#faf7ff" }} />;
-            const ds = dateStr(d);
-            const dayEvents = getEventsForDate(ds);
-            const isToday = ds===todayStr;
-            const dow = (firstDay + d - 1) % 7;
-            return (
-              <div key={ds} onClick={() => { setSelectedDate(ds); setView("day"); }}
-                style={{
-                  borderRight:"1px solid #f0e6ff", borderBottom:"1px solid #f0e6ff",
-                  padding:"2px 2px 2px 2px", cursor:"pointer", overflow:"hidden",
-                  background: selectedDate===ds?"#f3e8ff":"#fff",
-                }}
-                onMouseEnter={e => e.currentTarget.style.background="#faf3ff"}
-                onMouseLeave={e => e.currentTarget.style.background=selectedDate===ds?"#f3e8ff":"#fff"}
-              >
-                <div style={{
-                  width:20, height:20, borderRadius:"50%",
-                  display:"flex", alignItems:"center", justifyContent:"center",
-                  background: isToday?themeColor:"transparent",
-                  color: isToday?"#fff": dow===0?"#FF6B9D": dow===6?"#4D96FF":"#3D2B5E",
-                  fontWeight: isToday?"700":"400", fontSize:"11px", marginBottom:1,
-                }}>{d}</div>
-                {dayEvents.slice(0,3).map(ev => (
-                  <div key={ev.id} onClick={e => { e.stopPropagation(); openEdit(ev); }}
-                    style={{
-                      background:ev.color, borderRadius:"3px",
-                      padding:"1px 3px", marginBottom:1,
-                      fontSize:badgeFontSize+"px", color:"#fff", fontWeight:"600",
-                      whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
-                      width:"100%", boxSizing:"border-box",
-                    }}>
-                    {ev.title}
-                  </div>
-                ))}
-                {dayEvents.length > 3 && <div style={{ fontSize:"8px", color:"#9B59B6", fontWeight:"700", paddingLeft:2 }}>+{dayEvents.length-3}</div>}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  };
 
   const DayView = () => {
     const dayEvents = selectedDate ? getEventsForDate(selectedDate) : [];
@@ -353,7 +392,7 @@ export default function FamilyCalendar() {
             {dayEvents.map(ev => (
               <div key={ev.id} onClick={() => openEdit(ev)}
                 style={{
-                  background:"#fff", borderRadius:"16px", padding:"16px", marginBottom:12,
+                  background:bgCard, borderRadius:"16px", padding:"16px", marginBottom:12,
                   borderLeft:`5px solid ${ev.color}`,
                   boxShadow:"0 2px 12px rgba(155,89,182,0.08)", cursor:"pointer", transition:"transform 0.15s",
                 }}
@@ -362,7 +401,7 @@ export default function FamilyCalendar() {
               >
                 <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
                   <span style={{ fontSize:"24px" }}>{ev.emoji}</span>
-                  <div style={{ fontWeight:"700", fontSize:"16px", color:"#3D2B5E" }}>{ev.title}</div>
+                  <div style={{ fontWeight:"700", fontSize:"16px", color:textPri }}>{ev.title}</div>
                 </div>
                 {ev.memo && <div style={{ fontSize:"13px", color:"#9A8FAA", marginBottom:8 }}>{ev.memo}</div>}
                 <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
@@ -389,7 +428,7 @@ export default function FamilyCalendar() {
     const monthEvents = events
       .filter(e => {
         const [y,m] = e.date.split("-").map(Number);
-        return y===year && m===month+1 && (filterMember==="all" || e.members.includes(filterMember));
+        return y===year && m===month+1 && (filterMembers.length===0 || e.members.some(m => filterMembers.includes(m)));
       })
       .sort((a,b) => a.date.localeCompare(b.date));
     const grouped = {};
@@ -411,7 +450,7 @@ export default function FamilyCalendar() {
               {evs.map(ev => (
                 <div key={ev.id} onClick={() => openEdit(ev)}
                   style={{
-                    background:"#fff", borderRadius:"14px", padding:"14px", marginBottom:8,
+                    background:bgCard, borderRadius:"14px", padding:"14px", marginBottom:8,
                     borderLeft:`4px solid ${ev.color}`,
                     boxShadow:"0 2px 8px rgba(155,89,182,0.07)", cursor:"pointer",
                     display:"flex", alignItems:"center", gap:12,
@@ -438,7 +477,7 @@ export default function FamilyCalendar() {
 
   const settingsScreenJSX = (
     <div style={{
-      position:"fixed", inset:0, background:"#fff", zIndex:400,
+      position:"fixed", inset:0, background:bg, zIndex:400,
       display:"flex", flexDirection:"column",
       fontFamily:"'Hiragino Kaku Gothic ProN','Hiragino Sans',sans-serif",
     }}>
@@ -464,8 +503,32 @@ export default function FamilyCalendar() {
 
       {!editingMember && (
         <div style={{ flex:1, overflow:"auto", padding:"20px 16px" }}>
+          {/* Dark mode toggle */}
+          <div style={{ marginBottom:20, background:bgCard, borderRadius:"16px", padding:"16px", boxShadow:"0 2px 12px rgba(155,89,182,0.08)", border:`1px solid ${border}` }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+              <div style={{ fontSize:"14px", fontWeight:"700", color:textPri }}>🌙 ダークモード</div>
+              <div onClick={() => {
+                const next = !darkMode;
+                setDarkMode(next);
+                try { localStorage.setItem("dark_mode", next?"1":"0"); } catch {}
+              }} style={{
+                width:48, height:28, borderRadius:"14px", cursor:"pointer",
+                background: darkMode ? themeColor : "#ccc",
+                position:"relative", transition:"background 0.2s",
+              }}>
+                <div style={{
+                  width:22, height:22, borderRadius:"50%", background:"#fff",
+                  position:"absolute", top:3,
+                  left: darkMode ? 23 : 3,
+                  transition:"left 0.2s",
+                  boxShadow:"0 1px 4px rgba(0,0,0,0.3)",
+                }} />
+              </div>
+            </div>
+          </div>
+
           {/* Theme color setting */}
-          <div style={{ marginBottom:20, background:"#fff", borderRadius:"16px", padding:"16px", boxShadow:"0 2px 12px rgba(155,89,182,0.08)", border:"1px solid #f0e6ff" }}>
+          <div style={{ marginBottom:20, background:bgCard, borderRadius:"16px", padding:"16px", boxShadow:"0 2px 12px rgba(155,89,182,0.08)", border:`1px solid ${border}` }}>
             <div style={{ fontSize:"12px", fontWeight:"700", color:"#9A8FAA", marginBottom:12, letterSpacing:"1px" }}>テーマカラー</div>
             <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
               {[
@@ -492,7 +555,7 @@ export default function FamilyCalendar() {
           </div>
 
           {/* Font size setting */}
-          <div style={{ marginBottom:24, background:"#fff", borderRadius:"16px", padding:"16px", boxShadow:"0 2px 12px rgba(155,89,182,0.08)", border:"1px solid #f0e6ff" }}>
+          <div style={{ marginBottom:24, background:bgCard, borderRadius:"16px", padding:"16px", boxShadow:"0 2px 12px rgba(155,89,182,0.08)", border:`1px solid ${border}` }}>
             <div style={{ fontSize:"12px", fontWeight:"700", color:"#9A8FAA", marginBottom:12, letterSpacing:"1px" }}>予定の文字サイズ</div>
             <div style={{ display:"flex", alignItems:"center", gap:12 }}>
               <span style={{ fontSize:"10px", color:"#9A8FAA" }}>小</span>
@@ -525,8 +588,8 @@ export default function FamilyCalendar() {
             <div key={m.id} onClick={() => openEditMember(m)}
               style={{
                 display:"flex", alignItems:"center", gap:14,
-                background:"#fff", borderRadius:"16px", padding:"14px 16px", marginBottom:10,
-                cursor:"pointer", boxShadow:"0 2px 12px rgba(155,89,182,0.08)", border:"1px solid #f0e6ff",
+                background:bgCard, borderRadius:"16px", padding:"14px 16px", marginBottom:10,
+                cursor:"pointer", boxShadow:"0 2px 12px rgba(155,89,182,0.08)", border:`1px solid ${border}`,
               }}
               onMouseEnter={e => e.currentTarget.style.background="#faf3ff"}
               onMouseLeave={e => e.currentTarget.style.background="#fff"}
@@ -537,7 +600,7 @@ export default function FamilyCalendar() {
                 display:"flex", alignItems:"center", justifyContent:"center", fontSize:"22px",
               }}>{m.emoji}</div>
               <div style={{ flex:1 }}>
-                <div style={{ fontWeight:"700", fontSize:"16px", color:"#3D2B5E" }}>{m.name}</div>
+                <div style={{ fontWeight:"700", fontSize:"16px", color:textPri }}>{m.name}</div>
                 <div style={{ width:12, height:12, borderRadius:"50%", background:m.color, display:"inline-block", marginTop:4 }} />
               </div>
               <div style={{ color:"#C9B8E8", fontSize:"20px" }}>›</div>
@@ -560,6 +623,7 @@ export default function FamilyCalendar() {
           onSave={saveMember}
           onDelete={() => deleteMember(editingMember.id)}
           onBack={() => setEditingMember(null)}
+          themeGrad={themeGrad}
         />
       )}
     </div>
@@ -568,7 +632,7 @@ export default function FamilyCalendar() {
   return (
     <div style={{
       height:"100vh", display:"flex", flexDirection:"column",
-      background:"linear-gradient(160deg, #FAF0FF 0%, #F0EAFF 50%, #EAF4FF 100%)",
+      background: darkMode ? "#1a1a2e" : "linear-gradient(160deg, #FAF0FF 0%, #F0EAFF 50%, #EAF4FF 100%)",
       fontFamily:"'Hiragino Kaku Gothic ProN','Hiragino Sans',sans-serif",
       overflow:"hidden",
     }}>
@@ -598,35 +662,27 @@ export default function FamilyCalendar() {
           }}>＋</button>
         </div>
 
-        {/* 折りたたみ式メンバーフィルター */}
-        <div style={{ marginBottom:6 }}>
-          <button onClick={() => setFilterMember(filterMember === "__open__" ? "all" : "__open__")}
-            style={{
-              background:"none", border:"none", color:"rgba(255,255,255,0.8)",
-              fontSize:"11px", cursor:"pointer", padding:"0 0 4px",
-              display:"flex", alignItems:"center", gap:4,
-            }}>
-            {filterMember !== "all" && filterMember !== "__open__"
-              ? `🔍 ${members.find(m=>m.id===filterMember)?.name || "全員"}でフィルター中`
-              : "👥 メンバーで絞り込む"}
-            <span style={{ fontSize:"10px" }}>{filterMember === "__open__" ? "▲" : "▼"}</span>
-          </button>
-          {filterMember === "__open__" && (
-            <div style={{ display:"flex", gap:6, paddingBottom:8, overflowX:"auto" }}>
-              <button onClick={() => setFilterMember("all")} style={{
-                background:"rgba(255,255,255,0.9)", color:"#9B59B6",
-                border:"none", borderRadius:"20px", padding:"4px 12px", fontSize:"11px",
-                fontWeight:"700", cursor:"pointer", whiteSpace:"nowrap",
-              }}>全員</button>
-              {members.map(m => (
-                <button key={m.id} onClick={() => setFilterMember(m.id)} style={{
-                  background:"rgba(255,255,255,0.2)", color:"#fff",
-                  border:"none", borderRadius:"20px", padding:"4px 12px", fontSize:"11px",
-                  fontWeight:"700", cursor:"pointer", whiteSpace:"nowrap",
-                }}>{m.emoji} {m.name}</button>
-              ))}
-            </div>
-          )}
+        {/* メンバーフィルター（複数選択） */}
+        <div style={{ display:"flex", gap:5, paddingBottom:8, overflowX:"auto" }}>
+          <button onClick={() => setFilterMembers([])} style={{
+            background: filterMembers.length===0?"rgba(255,255,255,0.95)":"rgba(255,255,255,0.2)",
+            color: filterMembers.length===0?themeColor:"#fff",
+            border:"none", borderRadius:"20px", padding:"3px 10px", fontSize:"11px",
+            fontWeight:"700", cursor:"pointer", whiteSpace:"nowrap", flexShrink:0,
+          }}>全員</button>
+          {members.map(m => {
+            const on = filterMembers.includes(m.id);
+            return (
+              <button key={m.id} onClick={() => setFilterMembers(prev =>
+                on ? prev.filter(x => x!==m.id) : [...prev, m.id]
+              )} style={{
+                background: on?"rgba(255,255,255,0.95)":"rgba(255,255,255,0.2)",
+                color: on?m.color:"#fff",
+                border:"none", borderRadius:"20px", padding:"3px 10px", fontSize:"11px",
+                fontWeight:"700", cursor:"pointer", whiteSpace:"nowrap", flexShrink:0,
+              }}>{m.emoji} {m.name}</button>
+            );
+          })}
         </div>
 
         {/* タブ */}
@@ -642,8 +698,16 @@ export default function FamilyCalendar() {
         </div>
       </div>
 
-      <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", background:"#fff" }}>
-        {view==="month" && <MonthView />}
+      <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", background:bg }}>
+        {view==="month" && <MonthView
+          firstDay={firstDay} daysInMonth={daysInMonth} dateStr={dateStr}
+          todayStr={todayStr} selectedDate={selectedDate} setSelectedDate={setSelectedDate}
+          getEventsForDate={getEventsForDate} setView={setView}
+          dragX={dragX} setDragX={setDragX} transitioning={transitioning} setTransitioning={setTransitioning}
+          prevMonth={prevMonth} nextMonth={nextMonth}
+          border={border} bgSub={bgSub} bg={bg} themeColor={themeColor} textPri={textPri}
+          badgeFontSize={badgeFontSize} DAYS_JP={DAYS_JP}
+        />}
         {view==="day" && (
           selectedDate
             ? <DayView />
