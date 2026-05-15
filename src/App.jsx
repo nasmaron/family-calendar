@@ -29,9 +29,13 @@ const DEFAULT_MEMBERS = [
   { id: "child2", name: "花子", color: "#A8E6CF", emoji: "🌿" },
 ];
 
-const CATEGORY_COLORS = [
-  "#FF6B9D","#FF8C42","#FFD93D","#6BCB77",
-  "#4ECDC4","#4D96FF","#9B59B6","#E74C3C",
+const DEFAULT_CATEGORIES = [
+  { id: "c1", name: "仕事", color: "#4D96FF" },
+  { id: "c2", name: "家族", color: "#6BCB77" },
+  { id: "c3", name: "趣味", color: "#FF8C42" },
+  { id: "c4", name: "医療", color: "#E74C3C" },
+  { id: "c5", name: "学校", color: "#FFD93D" },
+  { id: "c6", name: "その他", color: "#9B59B6" },
 ];
 
 const MEMBER_COLORS = [
@@ -89,7 +93,7 @@ function MemberEditForm({ memberForm, setMemberForm, isNewMember, onSave, onDele
       </div>
 
       <div style={{ marginBottom:16 }}>
-        <div style={{ fontSize:"12px", fontWeight:"700", color:"#9A8FAA", marginBottom:8 }}>アイコン</div>
+        <div style={{ fontSize:"12px", fontWeight:"700", color:textSec, marginBottom:8 }}>アイコン</div>
         <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
           {MEMBER_EMOJIS.map(em => (
             <button key={em} onClick={() => setMemberForm(f => ({ ...f, emoji:em }))} style={{
@@ -166,7 +170,7 @@ function MonthView({
   };
 
   return (
-    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", touchAction:"pan-y" }}
+    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", touchAction:"none" }}
       onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
     >
       <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", flexShrink:0, borderBottom:`1px solid ${border}` }}>
@@ -187,9 +191,13 @@ function MonthView({
           const dow = (firstDay + d - 1) % 7;
           const handleTap = () => {
             const now = Date.now();
-            if (lastTap.current.ds === ds && now - lastTap.current.time < 300) {
+            if (selectedDate === ds) {
+              setView("day");
+            } else if (lastTap.current.ds === ds && now - lastTap.current.time < 300) {
               setSelectedDate(ds); setView("day");
-            } else { setSelectedDate(ds); }
+            } else {
+              setSelectedDate(ds);
+            }
             lastTap.current = { ds, time: now };
           };
           return (
@@ -234,7 +242,9 @@ export default function FamilyCalendar() {
 
   const [showEventModal, setShowEventModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
-  const [form, setForm] = useState({ title:"", date:"", members:[], color:"#4D96FF", emoji:"📅", memo:"" });
+  const [form, setForm] = useState({ title:"", date:"", members:[], color:"#4D96FF", emoji:"📅", memo:"", categoryId:"" });
+
+  const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
 
   const [showSettings, setShowSettings] = useState(false);
   const [dragX, setDragX] = useState(0);
@@ -273,6 +283,10 @@ export default function FamilyCalendar() {
         const mVal = await dbGet("family_members");
         if (mVal) setMembers(JSON.parse(mVal));
       } catch {}
+      try {
+        const cVal = await dbGet("family_categories");
+        if (cVal) setCategories(JSON.parse(cVal));
+      } catch {}
     })();
   }, []);
 
@@ -283,6 +297,9 @@ export default function FamilyCalendar() {
   };
   const saveMembers = async (mbs) => {
     try { await dbSet("family_members", JSON.stringify(mbs)); } catch {}
+  };
+  const saveCategories = async (cats) => {
+    try { await dbSet("family_categories", JSON.stringify(cats)); } catch {}
   };
 
   const showNotif = (msg) => {
@@ -309,6 +326,7 @@ export default function FamilyCalendar() {
     setEvents(newEvents);
     await saveEvents(newEvents);
     setShowEventModal(false);
+    setView("month");
     showNotif(editingEvent ? "更新しました✨" : "追加しました🎉");
   };
   const deleteEvent = async (id) => {
@@ -316,6 +334,7 @@ export default function FamilyCalendar() {
     setEvents(newEvents);
     await saveEvents(newEvents);
     setShowEventModal(false);
+    setView("month");
     showNotif("削除しました");
   };
 
@@ -583,6 +602,48 @@ export default function FamilyCalendar() {
             </div>
           </div>
 
+          <div style={{ fontSize:"12px", fontWeight:"700", color:"#9A8FAA", marginBottom:12, letterSpacing:"1px" }}>カテゴリー</div>
+          {categories.map(cat => (
+            <div key={cat.id} style={{
+              display:"flex", alignItems:"center", gap:12,
+              background:bgCard, borderRadius:"14px", padding:"12px 14px", marginBottom:8,
+              border:`1px solid ${border}`,
+            }}>
+              <div style={{ width:20, height:20, borderRadius:"50%", background:cat.color, flexShrink:0 }} />
+              <input value={cat.name} onChange={e => {
+                const newCats = categories.map(c => c.id===cat.id ? { ...c, name:e.target.value } : c);
+                setCategories(newCats); saveCategories(newCats);
+              }} style={{
+                flex:1, background:"transparent", border:"none", outline:"none",
+                fontSize:"15px", fontWeight:"600", color:textPri,
+              }} />
+              <div style={{ display:"flex", gap:4 }}>
+                {["#FF6B9D","#FF8C42","#FFD93D","#6BCB77","#4ECDC4","#4D96FF","#9B59B6","#E74C3C","#A8E6CF","#5F27CD","#00BCD4","#FF5722"].map(c => (
+                  <div key={c} onClick={() => {
+                    const newCats = categories.map(x => x.id===cat.id ? { ...x, color:c } : x);
+                    setCategories(newCats); saveCategories(newCats);
+                  }} style={{
+                    width:16, height:16, borderRadius:"50%", background:c, cursor:"pointer",
+                    outline: cat.color===c ? `2px solid ${c}` : "none", outlineOffset:2,
+                  }} />
+                ))}
+              </div>
+              <button onClick={() => {
+                const newCats = categories.filter(c => c.id !== cat.id);
+                setCategories(newCats); saveCategories(newCats);
+              }} style={{ background:"none", border:"none", color:"#e74c3c", fontSize:"16px", cursor:"pointer" }}>×</button>
+            </div>
+          ))}
+          <button onClick={() => {
+            const newCat = { id:"c"+Date.now(), name:"新しいカテゴリー", color:"#9B59B6" };
+            const newCats = [...categories, newCat];
+            setCategories(newCats); saveCategories(newCats);
+          }} style={{
+            width:"100%", padding:"12px", borderRadius:"14px", marginBottom:20,
+            background:"transparent", border:`2px dashed ${border}`,
+            color:textSec, fontWeight:"700", fontSize:"14px", cursor:"pointer",
+          }}>＋ カテゴリーを追加</button>
+
           <div style={{ fontSize:"12px", fontWeight:"700", color:"#9A8FAA", marginBottom:12, letterSpacing:"1px" }}>メンバー一覧</div>
           {members.map(m => (
             <div key={m.id} onClick={() => openEditMember(m)}
@@ -745,7 +806,7 @@ export default function FamilyCalendar() {
           overflowX:"hidden", touchAction:"pan-y",
         }} onClick={() => setShowEventModal(false)}>
           <div style={{
-            background:"#fff", borderRadius:"24px 24px 0 0", width:"100%",
+            background:bgCard, borderRadius:"24px 24px 0 0", width:"100%",
             maxHeight:"90vh", overflowY:"auto", overflowX:"hidden", padding:"24px 20px 40px",
             boxShadow:"0 -8px 40px rgba(155,89,182,0.2)", boxSizing:"border-box",
             touchAction:"pan-y",
@@ -758,13 +819,13 @@ export default function FamilyCalendar() {
             </div>
 
             <div style={{ marginBottom:16 }}>
-              <div style={{ fontSize:"12px", fontWeight:"700", color:"#9A8FAA", marginBottom:8 }}>アイコン</div>
+              <div style={{ fontSize:"12px", fontWeight:"700", color:textSec, marginBottom:8 }}>アイコン</div>
               <div style={{ display:"flex", gap:8, flexWrap:"wrap", maxWidth:"100%", overflowX:"hidden" }}>
                 {EVENT_EMOJIS.map(em => (
                   <button key={em} onClick={() => setForm(f => ({ ...f, emoji:em }))} style={{
                     width:36, height:36, borderRadius:"10px",
-                    border: form.emoji===em?"2px solid #9B59B6":"2px solid transparent",
-                    background: form.emoji===em?"#f3e8ff":"#faf7ff",
+                    border: form.emoji===em?`2px solid ${themeColor}`:"2px solid transparent",
+                    background: form.emoji===em?themeColor+"22":bgSub,
                     fontSize:"18px", cursor:"pointer",
                   }}>{em}</button>
                 ))}
@@ -772,27 +833,27 @@ export default function FamilyCalendar() {
             </div>
 
             <div style={{ marginBottom:14 }}>
-              <div style={{ fontSize:"12px", fontWeight:"700", color:"#9A8FAA", marginBottom:6 }}>タイトル *</div>
+              <div style={{ fontSize:"12px", fontWeight:"700", color:textSec, marginBottom:6 }}>タイトル *</div>
               <input value={form.title} onChange={e => setForm(f => ({ ...f, title:e.target.value }))}
                 placeholder="予定のタイトル" style={{
                   width:"100%", padding:"12px 16px", borderRadius:"14px",
-                  border:"2px solid #f0e6ff", fontSize:"16px", outline:"none",
-                  boxSizing:"border-box", color:"#3D2B5E",
+                  border:`2px solid ${border}`, fontSize:"16px", outline:"none",
+                  boxSizing:"border-box", color:textPri, background:bg,
                 }} />
             </div>
 
             <div style={{ marginBottom:14 }}>
-              <div style={{ fontSize:"12px", fontWeight:"700", color:"#9A8FAA", marginBottom:6 }}>日付 *</div>
+              <div style={{ fontSize:"12px", fontWeight:"700", color:textSec, marginBottom:6 }}>日付 *</div>
               <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date:e.target.value }))}
                 style={{
                   width:"100%", padding:"12px 16px", borderRadius:"14px",
-                  border:"2px solid #f0e6ff", fontSize:"16px", outline:"none",
-                  boxSizing:"border-box", color:"#3D2B5E",
+                  border:`2px solid ${border}`, fontSize:"16px", outline:"none",
+                  boxSizing:"border-box", color:textPri, background:bg,
                 }} />
             </div>
 
             <div style={{ marginBottom:14 }}>
-              <div style={{ fontSize:"12px", fontWeight:"700", color:"#9A8FAA", marginBottom:8 }}>参加メンバー</div>
+              <div style={{ fontSize:"12px", fontWeight:"700", color:textSec, marginBottom:8 }}>参加メンバー</div>
               <div style={{ display:"flex", gap:8, flexWrap:"wrap", maxWidth:"100%", overflowX:"hidden" }}>
                 {members.map(m => (
                   <button key={m.id} onClick={() => setForm(f => ({
@@ -810,24 +871,27 @@ export default function FamilyCalendar() {
             </div>
 
             <div style={{ marginBottom:14 }}>
-              <div style={{ fontSize:"12px", fontWeight:"700", color:"#9A8FAA", marginBottom:8 }}>カラー</div>
-              <div style={{ display:"flex", gap:8 }}>
-                {CATEGORY_COLORS.map(c => (
-                  <button key={c} onClick={() => setForm(f => ({ ...f, color:c }))} style={{
-                    width:28, height:28, borderRadius:"50%", background:c, border:"none",
-                    cursor:"pointer", outline: form.color===c?`3px solid ${c}`:"none", outlineOffset:2,
-                  }} />
+              <div style={{ fontSize:"12px", fontWeight:"700", color:textSec, marginBottom:8 }}>カテゴリー</div>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap", maxWidth:"100%", overflowX:"hidden" }}>
+                {categories.map(cat => (
+                  <button key={cat.id} onClick={() => setForm(f => ({ ...f, color:cat.color, categoryId:cat.id }))} style={{
+                    padding:"5px 12px", borderRadius:"20px", border:"2px solid",
+                    borderColor: form.categoryId===cat.id ? cat.color : "#e0d6f0",
+                    background: form.categoryId===cat.id ? cat.color : "#faf7ff",
+                    color: form.categoryId===cat.id ? "#fff" : "#9A8FAA",
+                    fontWeight:"700", fontSize:"12px", cursor:"pointer",
+                  }}>{cat.name}</button>
                 ))}
               </div>
             </div>
 
             <div style={{ marginBottom:24 }}>
-              <div style={{ fontSize:"12px", fontWeight:"700", color:"#9A8FAA", marginBottom:6 }}>メモ</div>
+              <div style={{ fontSize:"12px", fontWeight:"700", color:textSec, marginBottom:6 }}>メモ</div>
               <textarea value={form.memo} onChange={e => setForm(f => ({ ...f, memo:e.target.value }))}
                 placeholder="メモを入力" rows={3} style={{
                   width:"100%", padding:"12px 16px", borderRadius:"14px",
-                  border:"2px solid #f0e6ff", fontSize:"14px", outline:"none",
-                  boxSizing:"border-box", color:"#3D2B5E", resize:"none",
+                  border:`2px solid ${border}`, fontSize:"14px", outline:"none",
+                  boxSizing:"border-box", color:textPri, background:bg, resize:"none",
                 }} />
             </div>
 
