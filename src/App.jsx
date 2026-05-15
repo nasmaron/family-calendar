@@ -124,7 +124,7 @@ function MemberEditForm({ memberForm, setMemberForm, isNewMember, onSave, onDele
         )}
         <button onClick={onSave} style={{
           flex:2, padding:"14px", borderRadius:"16px",
-          background:"linear-gradient(135deg, #9B59B6, #E91E8C)",
+          background:themeGrad,
           border:"none", color:"#fff", fontWeight:"700", fontSize:"15px", cursor:"pointer",
           boxShadow:"0 4px 15px rgba(155,89,182,0.3)",
         }}>{isNewMember ? "追加する" : "更新する"}</button>
@@ -155,6 +155,16 @@ export default function FamilyCalendar() {
   const [editingMember, setEditingMember] = useState(null);
   const [memberForm, setMemberForm] = useState({ name:"", color:"#FF6B9D", emoji:"🌸" });
   const [isNewMember, setIsNewMember] = useState(false);
+  const [badgeFontSize, setBadgeFontSize] = useState(() => {
+    try { return Number(localStorage.getItem("badge_font_size")) || 9; } catch { return 9; }
+  });
+  const [themeColor, setThemeColor] = useState(() => {
+    try { return localStorage.getItem("theme_color") || "#9B59B6"; } catch { return "#9B59B6"; }
+  });
+  const [themeColor2, setThemeColor2] = useState(() => {
+    try { return localStorage.getItem("theme_color2") || "#E91E8C"; } catch { return "#E91E8C"; }
+  });
+  const themeGrad = `linear-gradient(135deg, ${themeColor} 0%, ${themeColor2} 100%)`;
 
   useEffect(() => {
     (async () => {
@@ -254,7 +264,7 @@ export default function FamilyCalendar() {
 
   const addBtnStyle = {
     display:"block", margin:"16px auto 0", padding:"10px 28px",
-    background:"linear-gradient(135deg, #9B59B6, #E91E8C)",
+    background:themeGrad,
     color:"#fff", border:"none", borderRadius:"30px", fontSize:"14px",
     fontWeight:"700", cursor:"pointer",
     boxShadow:"0 4px 15px rgba(155,89,182,0.3)",
@@ -266,12 +276,12 @@ export default function FamilyCalendar() {
     for (let d = 1; d <= daysInMonth; d++) cells.push(d);
     return (
       <div style={{ flex:1, overflow:"auto" }}>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gridTemplateRows:"34px", gridAutoRows:"90px" }}>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gridTemplateRows:"24px", gridAutoRows:"80px" }}>
           {DAYS_JP.map((d,i) => (
             <div key={d} style={{
               position:"sticky", top:0, zIndex:10,
-              background:"#fff", borderBottom:"2px solid #f0e6ff",
-              textAlign:"center", lineHeight:"34px", fontSize:"12px", fontWeight:"700",
+              background:"#fff", borderBottom:"1px solid #f0e6ff",
+              textAlign:"center", lineHeight:"24px", fontSize:"11px", fontWeight:"700",
               color: i===0?"#FF6B9D": i===6?"#4D96FF":"#9A8FAA",
             }}>{d}</div>
           ))}
@@ -285,31 +295,32 @@ export default function FamilyCalendar() {
               <div key={ds} onClick={() => { setSelectedDate(ds); setView("day"); }}
                 style={{
                   borderRight:"1px solid #f0e6ff", borderBottom:"1px solid #f0e6ff",
-                  padding:"6px 4px", cursor:"pointer", overflow:"hidden",
+                  padding:"2px 2px 2px 2px", cursor:"pointer", overflow:"hidden",
                   background: selectedDate===ds?"#f3e8ff":"#fff",
                 }}
                 onMouseEnter={e => e.currentTarget.style.background="#faf3ff"}
                 onMouseLeave={e => e.currentTarget.style.background=selectedDate===ds?"#f3e8ff":"#fff"}
               >
                 <div style={{
-                  width:26, height:26, borderRadius:"50%",
+                  width:20, height:20, borderRadius:"50%",
                   display:"flex", alignItems:"center", justifyContent:"center",
-                  background: isToday?"#9B59B6":"transparent",
+                  background: isToday?themeColor:"transparent",
                   color: isToday?"#fff": dow===0?"#FF6B9D": dow===6?"#4D96FF":"#3D2B5E",
-                  fontWeight: isToday?"700":"500", fontSize:"13px", marginBottom:2,
+                  fontWeight: isToday?"700":"400", fontSize:"11px", marginBottom:1,
                 }}>{d}</div>
                 {dayEvents.slice(0,3).map(ev => (
                   <div key={ev.id} onClick={e => { e.stopPropagation(); openEdit(ev); }}
                     style={{
-                      background:ev.color+"22", borderLeft:`3px solid ${ev.color}`,
-                      borderRadius:"4px", padding:"1px 4px", marginBottom:2,
-                      fontSize:"10px", color:"#3D2B5E", fontWeight:"600",
+                      background:ev.color, borderRadius:"3px",
+                      padding:"1px 3px", marginBottom:1,
+                      fontSize:badgeFontSize+"px", color:"#fff", fontWeight:"600",
                       whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
+                      width:"100%", boxSizing:"border-box",
                     }}>
-                    {ev.emoji} {ev.title}
+                    {ev.title}
                   </div>
                 ))}
-                {dayEvents.length > 3 && <div style={{ fontSize:"10px", color:"#9B59B6", fontWeight:"700" }}>+{dayEvents.length-3}件</div>}
+                {dayEvents.length > 3 && <div style={{ fontSize:"8px", color:"#9B59B6", fontWeight:"700", paddingLeft:2 }}>+{dayEvents.length-3}</div>}
               </div>
             );
           })}
@@ -432,7 +443,7 @@ export default function FamilyCalendar() {
       fontFamily:"'Hiragino Kaku Gothic ProN','Hiragino Sans',sans-serif",
     }}>
       <div style={{
-        background:"linear-gradient(135deg, #9B59B6 0%, #E91E8C 100%)",
+        background:themeGrad,
         padding:"16px",
         display:"flex", alignItems:"center", gap:12,
       }}>
@@ -441,7 +452,7 @@ export default function FamilyCalendar() {
           ‹
         </button>
         <div style={{ color:"#fff", fontWeight:"800", fontSize:"18px" }}>
-          {editingMember ? (isNewMember ? "メンバーを追加" : "メンバーを編集") : "メンバー設定"}
+          {editingMember ? (isNewMember ? "メンバーを追加" : "メンバーを編集") : "設定"}
         </div>
         {editingMember && (
           <button onClick={() => setEditingMember(null)}
@@ -453,6 +464,62 @@ export default function FamilyCalendar() {
 
       {!editingMember && (
         <div style={{ flex:1, overflow:"auto", padding:"20px 16px" }}>
+          {/* Theme color setting */}
+          <div style={{ marginBottom:20, background:"#fff", borderRadius:"16px", padding:"16px", boxShadow:"0 2px 12px rgba(155,89,182,0.08)", border:"1px solid #f0e6ff" }}>
+            <div style={{ fontSize:"12px", fontWeight:"700", color:"#9A8FAA", marginBottom:12, letterSpacing:"1px" }}>テーマカラー</div>
+            <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+              {[
+                ["#9B59B6","#E91E8C"],
+                ["#2196F3","#00BCD4"],
+                ["#FF5722","#FF9800"],
+                ["#4CAF50","#8BC34A"],
+                ["#E91E63","#FF5722"],
+                ["#3F51B5","#9C27B0"],
+                ["#009688","#4CAF50"],
+                ["#607D8B","#455A64"],
+              ].map(([c1,c2]) => (
+                <button key={c1} onClick={() => {
+                  setThemeColor(c1); setThemeColor2(c2);
+                  try { localStorage.setItem("theme_color",c1); localStorage.setItem("theme_color2",c2); } catch {}
+                }} style={{
+                  width:40, height:40, borderRadius:"12px",
+                  background:`linear-gradient(135deg,${c1},${c2})`,
+                  border: themeColor===c1?"3px solid #3D2B5E":"3px solid transparent",
+                  cursor:"pointer", outline:"none",
+                }} />
+              ))}
+            </div>
+          </div>
+
+          {/* Font size setting */}
+          <div style={{ marginBottom:24, background:"#fff", borderRadius:"16px", padding:"16px", boxShadow:"0 2px 12px rgba(155,89,182,0.08)", border:"1px solid #f0e6ff" }}>
+            <div style={{ fontSize:"12px", fontWeight:"700", color:"#9A8FAA", marginBottom:12, letterSpacing:"1px" }}>予定の文字サイズ</div>
+            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+              <span style={{ fontSize:"10px", color:"#9A8FAA" }}>小</span>
+              <input type="range" min="7" max="13" value={badgeFontSize}
+                onChange={e => {
+                  const v = Number(e.target.value);
+                  setBadgeFontSize(v);
+                  try { localStorage.setItem("badge_font_size", v); } catch {}
+                }}
+                style={{ flex:1, accentColor:"#9B59B6" }}
+              />
+              <span style={{ fontSize:"14px", color:"#9A8FAA" }}>大</span>
+              <span style={{
+                minWidth:32, textAlign:"center", fontSize:"13px", fontWeight:"700",
+                color:"#9B59B6", background:"#f3e8ff", borderRadius:"8px", padding:"2px 8px"
+              }}>{badgeFontSize}px</span>
+            </div>
+            {/* Preview */}
+            <div style={{ marginTop:12, background:"#f3e8ff", borderRadius:"8px", padding:"8px 10px" }}>
+              <div style={{
+                background:"#4D96FF22", borderLeft:"3px solid #4D96FF",
+                borderRadius:"4px", padding:"2px 6px",
+                fontSize:badgeFontSize+"px", color:"#3D2B5E", fontWeight:"600",
+              }}>📅 プレビュー：家族でピクニック</div>
+            </div>
+          </div>
+
           <div style={{ fontSize:"12px", fontWeight:"700", color:"#9A8FAA", marginBottom:12, letterSpacing:"1px" }}>メンバー一覧</div>
           {members.map(m => (
             <div key={m.id} onClick={() => openEditMember(m)}
@@ -478,7 +545,7 @@ export default function FamilyCalendar() {
           ))}
           <button onClick={openNewMember} style={{
             width:"100%", padding:"14px", borderRadius:"16px", marginTop:8,
-            background:"linear-gradient(135deg, #9B59B6, #E91E8C)",
+            background:themeGrad,
             border:"none", color:"#fff", fontWeight:"700", fontSize:"15px", cursor:"pointer",
             boxShadow:"0 4px 15px rgba(155,89,182,0.3)",
           }}>＋ メンバーを追加</button>
@@ -506,65 +573,69 @@ export default function FamilyCalendar() {
       overflow:"hidden",
     }}>
       <div style={{
-        background:"linear-gradient(135deg, #9B59B6 0%, #E91E8C 100%)",
-        padding:"0 16px", boxShadow:"0 4px 20px rgba(155,89,182,0.3)",
+        background:themeGrad,
+        padding:"0 12px", boxShadow:"0 4px 20px rgba(155,89,182,0.3)",
       }}>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", paddingTop:12, paddingBottom:8 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-            <span style={{ fontSize:"22px" }}>🏠</span>
-            <div>
-              <div style={{ color:"#fff", fontWeight:"900", fontSize:"18px" }}>ファミリー</div>
-              <div style={{ color:"rgba(255,255,255,0.7)", fontSize:"10px", letterSpacing:"2px" }}>FAMILY CALENDAR</div>
-            </div>
-          </div>
-          <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-            {saving && <span style={{ color:"rgba(255,255,255,0.8)", fontSize:"11px" }}>保存中…</span>}
-            <button onClick={() => { setShowSettings(true); setEditingMember(null); }} style={{
-              background:"rgba(255,255,255,0.2)", border:"1px solid rgba(255,255,255,0.4)",
-              color:"#fff", borderRadius:"50%", width:34, height:34, fontSize:"16px", cursor:"pointer",
-              display:"flex", alignItems:"center", justifyContent:"center",
-            }}>⚙️</button>
-            <button onClick={() => openAdd()} style={{
-              background:"rgba(255,255,255,0.25)", border:"1px solid rgba(255,255,255,0.4)",
-              color:"#fff", borderRadius:"20px", padding:"6px 16px", fontSize:"13px",
-              fontWeight:"700", cursor:"pointer",
-            }}>＋ 追加</button>
-          </div>
-        </div>
-
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:20, paddingBottom:10 }}>
-          <button onClick={prevMonth} style={{ background:"none", border:"none", color:"#fff", fontSize:"20px", cursor:"pointer" }}>‹</button>
-          <div style={{ color:"#fff", fontWeight:"800", fontSize:"20px" }}>{year}年 {MONTHS_JP[month]}</div>
-          <button onClick={nextMonth} style={{ background:"none", border:"none", color:"#fff", fontSize:"20px", cursor:"pointer" }}>›</button>
+        {/* 月ナビ + ボタン類を1行に */}
+        <div style={{ display:"flex", alignItems:"center", gap:8, paddingTop:10, paddingBottom:8 }}>
+          <button onClick={prevMonth} style={{ background:"none", border:"none", color:"#fff", fontSize:"22px", cursor:"pointer", padding:"0 4px" }}>‹</button>
+          <div style={{ color:"#fff", fontWeight:"800", fontSize:"18px", flex:1, textAlign:"center" }}>{year}年 {MONTHS_JP[month]}</div>
+          <button onClick={nextMonth} style={{ background:"none", border:"none", color:"#fff", fontSize:"22px", cursor:"pointer", padding:"0 4px" }}>›</button>
           <button onClick={() => { setYear(today.getFullYear()); setMonth(today.getMonth()); setSelectedDate(todayStr); setView("month"); }}
-            style={{ background:"rgba(255,255,255,0.2)", border:"none", color:"#fff", borderRadius:"12px", padding:"4px 10px", fontSize:"11px", cursor:"pointer" }}>
+            style={{ background:"rgba(255,255,255,0.2)", border:"none", color:"#fff", borderRadius:"10px", padding:"3px 8px", fontSize:"11px", cursor:"pointer" }}>
             今日
           </button>
+          {saving && <span style={{ color:"rgba(255,255,255,0.8)", fontSize:"10px" }}>保存中</span>}
+          <button onClick={() => { setShowSettings(true); setEditingMember(null); }} style={{
+            background:"rgba(255,255,255,0.2)", border:"none", color:"#fff",
+            borderRadius:"50%", width:30, height:30, fontSize:"14px", cursor:"pointer",
+            display:"flex", alignItems:"center", justifyContent:"center",
+          }}>⚙️</button>
+          <button onClick={() => openAdd()} style={{
+            background:"rgba(255,255,255,0.25)", border:"1px solid rgba(255,255,255,0.4)",
+            color:"#fff", borderRadius:"16px", padding:"4px 12px", fontSize:"12px",
+            fontWeight:"700", cursor:"pointer",
+          }}>＋</button>
         </div>
 
-        <div style={{ display:"flex", gap:6, paddingBottom:10, overflowX:"auto" }}>
-          <button onClick={() => setFilterMember("all")} style={{
-            background: filterMember==="all"?"rgba(255,255,255,0.9)":"rgba(255,255,255,0.2)",
-            color: filterMember==="all"?"#9B59B6":"#fff",
-            border:"none", borderRadius:"20px", padding:"4px 14px", fontSize:"12px",
-            fontWeight:"700", cursor:"pointer", whiteSpace:"nowrap",
-          }}>全員</button>
-          {members.map(m => (
-            <button key={m.id} onClick={() => setFilterMember(filterMember===m.id?"all":m.id)} style={{
-              background: filterMember===m.id?"rgba(255,255,255,0.9)":"rgba(255,255,255,0.2)",
-              color: filterMember===m.id?m.color:"#fff",
-              border:"none", borderRadius:"20px", padding:"4px 14px", fontSize:"12px",
-              fontWeight:"700", cursor:"pointer", whiteSpace:"nowrap",
-            }}>{m.emoji} {m.name}</button>
-          ))}
+        {/* 折りたたみ式メンバーフィルター */}
+        <div style={{ marginBottom:6 }}>
+          <button onClick={() => setFilterMember(filterMember === "__open__" ? "all" : "__open__")}
+            style={{
+              background:"none", border:"none", color:"rgba(255,255,255,0.8)",
+              fontSize:"11px", cursor:"pointer", padding:"0 0 4px",
+              display:"flex", alignItems:"center", gap:4,
+            }}>
+            {filterMember !== "all" && filterMember !== "__open__"
+              ? `🔍 ${members.find(m=>m.id===filterMember)?.name || "全員"}でフィルター中`
+              : "👥 メンバーで絞り込む"}
+            <span style={{ fontSize:"10px" }}>{filterMember === "__open__" ? "▲" : "▼"}</span>
+          </button>
+          {filterMember === "__open__" && (
+            <div style={{ display:"flex", gap:6, paddingBottom:8, overflowX:"auto" }}>
+              <button onClick={() => setFilterMember("all")} style={{
+                background:"rgba(255,255,255,0.9)", color:"#9B59B6",
+                border:"none", borderRadius:"20px", padding:"4px 12px", fontSize:"11px",
+                fontWeight:"700", cursor:"pointer", whiteSpace:"nowrap",
+              }}>全員</button>
+              {members.map(m => (
+                <button key={m.id} onClick={() => setFilterMember(m.id)} style={{
+                  background:"rgba(255,255,255,0.2)", color:"#fff",
+                  border:"none", borderRadius:"20px", padding:"4px 12px", fontSize:"11px",
+                  fontWeight:"700", cursor:"pointer", whiteSpace:"nowrap",
+                }}>{m.emoji} {m.name}</button>
+              ))}
+            </div>
+          )}
         </div>
 
+        {/* タブ */}
         <div style={{ display:"flex", gap:2 }}>
           {[["month","月"],["day","日"],["list","一覧"]].map(([v,label]) => (
             <button key={v} onClick={() => setView(v)} style={{
               flex:1, background: view===v?"rgba(255,255,255,0.95)":"transparent",
-              color: view===v?"#9B59B6":"rgba(255,255,255,0.8)",
-              border:"none", padding:"8px 0", fontSize:"13px", fontWeight:"700",
+              color: view===v?themeColor:"rgba(255,255,255,0.8)",
+              border:"none", padding:"7px 0", fontSize:"13px", fontWeight:"700",
               cursor:"pointer", borderRadius:"12px 12px 0 0", transition:"all 0.2s",
             }}>{label}表示</button>
           ))}
@@ -587,7 +658,7 @@ export default function FamilyCalendar() {
       <button onClick={() => openAdd(selectedDate || todayStr)} style={{
         position:"fixed", bottom:24, right:24,
         width:56, height:56, borderRadius:"50%",
-        background:"linear-gradient(135deg, #9B59B6, #E91E8C)",
+        background:themeGrad,
         border:"none", color:"#fff", fontSize:"28px", cursor:"pointer",
         boxShadow:"0 6px 24px rgba(155,89,182,0.5)",
         display:"flex", alignItems:"center", justifyContent:"center", zIndex:100,
@@ -706,7 +777,7 @@ export default function FamilyCalendar() {
               )}
               <button onClick={saveForm} style={{
                 flex:2, padding:"14px", borderRadius:"16px",
-                background:"linear-gradient(135deg, #9B59B6, #E91E8C)",
+                background:themeGrad,
                 border:"none", color:"#fff", fontWeight:"700", fontSize:"15px", cursor:"pointer",
                 boxShadow:"0 4px 15px rgba(155,89,182,0.3)",
               }}>{editingEvent ? "更新する" : "追加する"}</button>
