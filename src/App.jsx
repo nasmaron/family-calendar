@@ -50,7 +50,7 @@ const MEMBER_EMOJIS = [
   "🎸","🎨","🚀","👑","🌺","🍉","🎯","🏆",
 ];
 
-const EVENT_EMOJIS = ["📅","🎂","🎵","⚽","🌸","✈️","🏠","🍽️","📚","💊","🎹","🎭","🛒","🌿","⭐","🎉","🤝","🏖️","🎓","💼"];
+const EVENT_EMOJIS = ["📅","🎂","🎵","⚽","🌸","✈️","🏠","🍽️","📚","💊","🎹","🎭","🛒","🌿","⭐","🎉","🤝","🏖️","🎓","💼","🍺","👶","🃏","🎪","🏥","🚗","💕","🍜","🎯","🔑"];
 
 const DAYS_JP = ["日","月","火","水","木","金","土"];
 const MONTHS_JP = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
@@ -320,7 +320,7 @@ function MonthView({
                 }}>{holiday}</div>
               )}
               {dayEvents.slice(0,3).map(ev => (
-                <div key={ev.id} onClick={e => e.stopPropagation()}
+                <div key={ev.id} onClick={e => { e.stopPropagation(); setShowEventDetail(ev); }}
                   style={{ background:ev.color, borderRadius:"3px", padding:"1px 3px", marginBottom:1,
                     fontSize:badgeFontSize+"px", color:"#fff", fontWeight:"600",
                     whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
@@ -351,9 +351,18 @@ export default function FamilyCalendar() {
 
   const [showEventModal, setShowEventModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
-  const [form, setForm] = useState({ title:"", date:"", members:[], color:"#4D96FF", emoji:"📅", memo:"", categoryId:"" });
+  const [form, setForm] = useState({ title:"", date:"", startTime:"", endTime:"", members:[], color:"#4D96FF", emoji:"📅", memo:"", categoryId:"" });
+  const [showEventDetail, setShowEventDetail] = useState(null); // 詳細表示するevent
 
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
+  const [customEmojis, setCustomEmojis] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("custom_emojis")) || []; } catch { return []; }
+  });
+  const [removedEmojis, setRemovedEmojis] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("removed_emojis")) || []; } catch { return []; }
+  });
+  const [emojiInput, setEmojiInput] = useState("");
+  const allEmojis = [...EVENT_EMOJIS.filter(e => !removedEmojis.includes(e)), ...customEmojis];
 
   const [showSettings, setShowSettings] = useState(false);
   const [dragX, setDragX] = useState(0);
@@ -424,7 +433,7 @@ export default function FamilyCalendar() {
   };
   const openEdit = (ev) => {
     setEditingEvent(ev);
-    setForm({ ...ev });
+    setForm({ startTime:"", endTime:"", ...ev });
     setShowEventModal(true);
   };
   const saveForm = async () => {
@@ -518,7 +527,7 @@ export default function FamilyCalendar() {
         ) : (
           <>
             {dayEvents.map(ev => (
-              <div key={ev.id} onClick={() => openEdit(ev)}
+              <div key={ev.id} onClick={() => setShowEventDetail(ev)}
                 style={{
                   background:bgCard, borderRadius:"16px", padding:"16px", marginBottom:12,
                   borderLeft:`5px solid ${ev.color}`,
@@ -532,6 +541,7 @@ export default function FamilyCalendar() {
                   <div style={{ fontWeight:"700", fontSize:"16px", color:textPri }}>{ev.title}</div>
                 </div>
                 {ev.memo && <div style={{ fontSize:"13px", color:textSec, marginBottom:8 }}>{ev.memo}</div>}
+                {ev.startTime && <div style={{ fontSize:"13px", color:textSec, marginBottom:8 }}>🕐 {ev.startTime}{ev.endTime ? " 〜 "+ev.endTime : ""}</div>}
                 <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
                   {ev.members.map(mid => {
                     const m = members.find(x => x.id===mid);
@@ -711,7 +721,72 @@ export default function FamilyCalendar() {
             </div>
           </div>
 
-          <div style={{ fontSize:"12px", fontWeight:"700", color:"#9A8FAA", marginBottom:12, letterSpacing:"1px" }}>カテゴリー</div>
+          {/* アイコン管理 */}
+          <div style={{ marginBottom:20, background:bgCard, borderRadius:"16px", padding:"16px", boxShadow:"0 2px 12px rgba(155,89,182,0.08)", border:`1px solid ${border}` }}>
+            <div style={{ fontSize:"12px", fontWeight:"700", color:textSec, marginBottom:12, letterSpacing:"1px" }}>予定アイコン</div>
+            <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:12 }}>
+              {allEmojis.map(em => (
+                <div key={em} style={{ position:"relative", width:40, height:40, flexShrink:0 }}>
+                  <div style={{
+                    width:40, height:40, borderRadius:"10px", background:bgSub,
+                    display:"flex", alignItems:"center", justifyContent:"center", fontSize:"22px",
+                  }}>{em}</div>
+                  <div onClick={() => {
+                    if (customEmojis.includes(em)) {
+                      const next = customEmojis.filter(x => x !== em);
+                      setCustomEmojis(next);
+                      try { localStorage.setItem("custom_emojis", JSON.stringify(next)); } catch {}
+                    } else {
+                      const next = [...removedEmojis, em];
+                      setRemovedEmojis(next);
+                      try { localStorage.setItem("removed_emojis", JSON.stringify(next)); } catch {}
+                    }
+                  }} style={{
+                    position:"absolute", top:-6, right:-6, width:18, height:18,
+                    borderRadius:"50%", background:"#e74c3c",
+                    color:"#fff", fontSize:"12px", cursor:"pointer",
+                    display:"flex", alignItems:"center", justifyContent:"center",
+                    fontWeight:"900", zIndex:10,
+                    boxShadow:"0 1px 4px rgba(0,0,0,0.4)",
+                  }}>×</div>
+                </div>
+              ))}
+            </div>
+            {removedEmojis.length > 0 && (
+              <button onClick={() => {
+                setRemovedEmojis([]);
+                try { localStorage.removeItem("removed_emojis"); } catch {}
+              }} style={{
+                fontSize:"12px", color:"#fff", background:"#9B59B6",
+                border:"none", borderRadius:"10px", padding:"6px 12px",
+                cursor:"pointer", marginBottom:10, fontWeight:"700",
+              }}>🔄 デフォルトをリセット</button>
+            )}
+            <div style={{ display:"flex", gap:8 }}>
+              <input value={emojiInput} onChange={e => setEmojiInput(e.target.value)}
+                placeholder="絵文字を入力（例：🍕）" maxLength={4}
+                style={{
+                  flex:1, padding:"10px 14px", borderRadius:"12px",
+                  border:`2px solid ${border}`, fontSize:"20px", outline:"none",
+                  background:bg, color:textPri, boxSizing:"border-box",
+                }} />
+              <button onClick={() => {
+                const em = emojiInput.trim();
+                if (!em || customEmojis.includes(em) || EVENT_EMOJIS.includes(em)) return;
+                const next = [...customEmojis, em];
+                setCustomEmojis(next);
+                setEmojiInput("");
+                try { localStorage.setItem("custom_emojis", JSON.stringify(next)); } catch {}
+              }} style={{
+                padding:"10px 16px", borderRadius:"12px",
+                background:themeGrad, border:"none", color:"#fff",
+                fontWeight:"700", fontSize:"14px", cursor:"pointer",
+              }}>追加</button>
+            </div>
+            <div style={{ fontSize:"11px", color:textSec, marginTop:8 }}>×で削除できます。デフォルトは「リセット」で復元できます。</div>
+          </div>
+
+          {/* カテゴリー */}
           {categories.map(cat => (
             <div key={cat.id} style={{
               background:bgCard, borderRadius:"14px", padding:"12px 14px", marginBottom:8,
@@ -909,6 +984,49 @@ export default function FamilyCalendar() {
 
       {showSettings && settingsScreenJSX}
 
+      {/* 予定詳細モーダル */}
+      {showEventDetail && (
+        <div style={{
+          position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", zIndex:300,
+          display:"flex", alignItems:"flex-end", backdropFilter:"blur(4px)",
+        }} onClick={() => setShowEventDetail(null)}>
+          <div style={{
+            background:bgCard, borderRadius:"24px 24px 0 0", width:"100%",
+            padding:"24px 20px 40px", boxShadow:"0 -8px 40px rgba(0,0,0,0.2)",
+            boxSizing:"border-box",
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                <span style={{ fontSize:"28px" }}>{showEventDetail.emoji}</span>
+                <div style={{ fontWeight:"800", fontSize:"18px", color:textPri }}>{showEventDetail.title}</div>
+              </div>
+              <button onClick={() => setShowEventDetail(null)} style={{ background:"none", border:"none", fontSize:"24px", cursor:"pointer", color:textSec }}>×</button>
+            </div>
+            <div style={{ borderLeft:`4px solid ${showEventDetail.color}`, paddingLeft:12, marginBottom:16 }}>
+              <div style={{ fontSize:"14px", color:textSec, marginBottom:4 }}>
+                📅 {showEventDetail.date.replace(/-/g,"/")}
+                {showEventDetail.startTime && (
+                  <span style={{ marginLeft:8 }}>🕐 {showEventDetail.startTime}{showEventDetail.endTime ? " 〜 " + showEventDetail.endTime : ""}</span>
+                )}
+              </div>
+              {showEventDetail.memo && <div style={{ fontSize:"14px", color:textPri, marginTop:4 }}>📝 {showEventDetail.memo}</div>}
+            </div>
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:20 }}>
+              {(showEventDetail.members||[]).map(mid => {
+                const m = members.find(x => x.id===mid);
+                return m ? <span key={mid} style={{ background:m.color+"22", color:m.color, borderRadius:"20px", padding:"4px 12px", fontSize:"13px", fontWeight:"700" }}>{m.emoji} {m.name}</span> : null;
+              })}
+            </div>
+            <button onClick={() => { openEdit(showEventDetail); setShowEventDetail(null); }} style={{
+              width:"100%", padding:"14px", borderRadius:"16px",
+              background:themeGrad, border:"none", color:"#fff",
+              fontWeight:"700", fontSize:"15px", cursor:"pointer",
+            }}>✏️ 編集する</button>
+          </div>
+        </div>
+      )}
+
+      {/* イベントモーダル */}
       {showEventModal && (
         <div style={{
           position:"fixed", inset:0, background:"rgba(61,43,94,0.5)", zIndex:300,
@@ -922,16 +1040,19 @@ export default function FamilyCalendar() {
             touchAction:"pan-y",
           }} onClick={e => e.stopPropagation()}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
-              <div style={{ fontWeight:"800", fontSize:"18px", color:"#3D2B5E" }}>
+              <div style={{ fontWeight:"800", fontSize:"18px", color:textPri }}>
                 {editingEvent ? "予定を編集" : "予定を追加"}
               </div>
-              <button onClick={() => setShowEventModal(false)} style={{ background:"none", border:"none", fontSize:"24px", cursor:"pointer", color:"#9A8FAA" }}>×</button>
+              <button onClick={() => setShowEventModal(false)} style={{
+                background:"none", border:"none", fontSize:"24px", cursor:"pointer",
+                color:textSec, zIndex:10, padding:"4px 8px",
+              }}>×</button>
             </div>
 
             <div style={{ marginBottom:16 }}>
               <div style={{ fontSize:"12px", fontWeight:"700", color:textSec, marginBottom:8 }}>アイコン</div>
               <div style={{ display:"flex", gap:8, flexWrap:"wrap", maxWidth:"100%", overflowX:"hidden" }}>
-                {EVENT_EMOJIS.map(em => (
+                {allEmojis.map(em => (
                   <button key={em} onClick={() => setForm(f => ({ ...f, emoji:em }))} style={{
                     width:36, height:36, borderRadius:"10px",
                     border: form.emoji===em?`2px solid ${themeColor}`:"2px solid transparent",
@@ -960,6 +1081,25 @@ export default function FamilyCalendar() {
                   border:`2px solid ${border}`, fontSize:"16px", outline:"none",
                   boxSizing:"border-box", color:textPri, background:bg,
                 }} />
+            </div>
+
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:"12px", fontWeight:"700", color:textSec, marginBottom:6 }}>時間（任意）</div>
+              <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                <input type="time" value={form.startTime||""} onChange={e => setForm(f => ({ ...f, startTime:e.target.value }))}
+                  style={{
+                    flex:1, padding:"12px 16px", borderRadius:"14px",
+                    border:`2px solid ${border}`, fontSize:"16px", outline:"none",
+                    boxSizing:"border-box", color:textPri, background:bg,
+                  }} />
+                <span style={{ color:textSec, fontWeight:"700" }}>〜</span>
+                <input type="time" value={form.endTime||""} onChange={e => setForm(f => ({ ...f, endTime:e.target.value }))}
+                  style={{
+                    flex:1, padding:"12px 16px", borderRadius:"14px",
+                    border:`2px solid ${border}`, fontSize:"16px", outline:"none",
+                    boxSizing:"border-box", color:textPri, background:bg,
+                  }} />
+              </div>
             </div>
 
             <div style={{ marginBottom:14 }}>
