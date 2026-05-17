@@ -167,7 +167,7 @@ const defaultEvents = [
 function getDaysInMonth(y, m) { return new Date(y, m + 1, 0).getDate(); }
 function getFirstDay(y, m) { return new Date(y, m, 1).getDay(); }
 
-function MemberEditForm({ memberForm, setMemberForm, isNewMember, onSave, onDelete, onBack, themeGrad }) {
+function MemberEditForm({ memberForm, setMemberForm, isNewMember, onSave, onDelete, onBack, themeGrad, textSec }) {
   return (
     <div style={{ flex:1, overflow:"auto", padding:"20px 16px" }}>
       <div style={{ display:"flex", justifyContent:"center", marginBottom:24 }}>
@@ -241,14 +241,21 @@ function MonthView({
   firstDay, daysInMonth, dateStr, todayStr, selectedDate, setSelectedDate,
   getEventsForDate, setView, dragX, setDragX, transitioning, setTransitioning,
   prevMonth, nextMonth, border, bgSub, bg, themeColor, textPri, badgeFontSize,
-  DAYS_JP
+  DAYS_JP, showBadgeEmoji, setShowEventDetail, weekStartsMonday
 }) {
   const lastTap = useRef({ ds: null, time: 0 });
   const touchStart = useRef(null);
+  // 月曜始まりの場合、firstDayを調整
+  const adjustedFirstDay = weekStartsMonday ? (firstDay === 0 ? 6 : firstDay - 1) : firstDay;
   const cells = [];
-  for (let i = 0; i < firstDay; i++) cells.push(null);
+  for (let i = 0; i < adjustedFirstDay; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-  const weeks = Math.ceil((firstDay + daysInMonth) / 7);
+  const weeks = Math.ceil((adjustedFirstDay + daysInMonth) / 7);
+  const orderedDays = weekStartsMonday
+    ? ["月","火","水","木","金","土","日"]
+    : DAYS_JP;
+  const sunIdx = weekStartsMonday ? 6 : 0;
+  const satIdx = weekStartsMonday ? 5 : 6;
 
   const onTouchStart = (e) => { touchStart.current = e.touches[0].clientX; setDragX(0); };
   const onTouchMove = (e) => {
@@ -274,9 +281,9 @@ function MonthView({
       onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
     >
       <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", flexShrink:0, borderBottom:`1px solid ${border}` }}>
-        {DAYS_JP.map((d,i) => (
+        {orderedDays.map((d,i) => (
           <div key={d} style={{ background:bg, textAlign:"center", lineHeight:"24px", fontSize:"11px", fontWeight:"700",
-            color: i===0?"#FF6B9D": i===6?"#4D96FF":"#9A8FAA" }}>{d}</div>
+            color: i===sunIdx?"#FF6B9D": i===satIdx?"#4D96FF":"#9A8FAA" }}>{d}</div>
         ))}
       </div>
       <div style={{ flex:1, display:"grid", gridTemplateColumns:"repeat(7,1fr)",
@@ -289,7 +296,7 @@ function MonthView({
           const ds = dateStr(d);
           const dayEvents = getEventsForDate(ds);
           const isToday = ds===todayStr;
-          const dow = (firstDay + d - 1) % 7;
+          const rawDow = new Date(ds).getDay(); // 0=日,6=土
           const holiday = getHoliday(ds);
           const handleTap = () => {
             const now = Date.now();
@@ -310,7 +317,7 @@ function MonthView({
               <div style={{ width:20, height:20, borderRadius:"50%",
                 display:"flex", alignItems:"center", justifyContent:"center",
                 background: isToday?themeColor:"transparent",
-                color: isToday?"#fff": holiday?"#FF6B9D": dow===0?"#FF6B9D": dow===6?"#4D96FF":textPri,
+                color: isToday?"#fff": holiday?"#FF6B9D": rawDow===0?"#FF6B9D": rawDow===6?"#4D96FF":textPri,
                 fontWeight: isToday?"700":"400", fontSize:"11px", marginBottom:1 }}>{d}</div>
               {holiday && (
                 <div style={{
@@ -324,7 +331,7 @@ function MonthView({
                   style={{ background:ev.color, borderRadius:"3px", padding:"1px 3px", marginBottom:1,
                     fontSize:badgeFontSize+"px", color:"#fff", fontWeight:"600",
                     whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
-                    width:"100%", boxSizing:"border-box" }}>{ev.title}</div>
+                    width:"100%", boxSizing:"border-box" }}>{showBadgeEmoji ? ev.emoji+" " : ""}{ev.title}</div>
               ))}
               {dayEvents.length > 3 && <div style={{ fontSize:"8px", color:"#9B59B6", fontWeight:"700", paddingLeft:2 }}>+{dayEvents.length-3}</div>}
             </div>
@@ -362,6 +369,12 @@ export default function FamilyCalendar() {
     try { return JSON.parse(localStorage.getItem("removed_emojis")) || []; } catch { return []; }
   });
   const [emojiInput, setEmojiInput] = useState("");
+  const [showBadgeEmoji, setShowBadgeEmoji] = useState(() => {
+    try { return localStorage.getItem("show_badge_emoji") !== "0"; } catch { return true; }
+  });
+  const [weekStartsMonday, setWeekStartsMonday] = useState(() => {
+    try { return localStorage.getItem("week_starts_monday") === "1"; } catch { return false; }
+  });
   const allEmojis = [...EVENT_EMOJIS.filter(e => !removedEmojis.includes(e)), ...customEmojis];
 
   const [showSettings, setShowSettings] = useState(false);
@@ -665,6 +678,55 @@ export default function FamilyCalendar() {
             </div>
           </div>
 
+          {/* Badge emoji toggle */}
+          <div style={{ marginBottom:20, background:bgCard, borderRadius:"16px", padding:"16px", boxShadow:"0 2px 12px rgba(155,89,182,0.08)", border:`1px solid ${border}` }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+              <div style={{ fontSize:"14px", fontWeight:"700", color:textPri }}>📅 カレンダーにアイコンを表示</div>
+              <div onClick={() => {
+                const next = !showBadgeEmoji;
+                setShowBadgeEmoji(next);
+                try { localStorage.setItem("show_badge_emoji", next?"1":"0"); } catch {}
+              }} style={{
+                width:48, height:28, borderRadius:"14px", cursor:"pointer",
+                background: showBadgeEmoji ? themeColor : "#ccc",
+                position:"relative", transition:"background 0.2s",
+              }}>
+                <div style={{
+                  width:22, height:22, borderRadius:"50%", background:"#fff",
+                  position:"absolute", top:3,
+                  left: showBadgeEmoji ? 23 : 3,
+                  transition:"left 0.2s",
+                  boxShadow:"0 1px 4px rgba(0,0,0,0.3)",
+                }} />
+              </div>
+            </div>
+          </div>
+
+          {/* Week start setting */}
+          <div style={{ marginBottom:20, background:bgCard, borderRadius:"16px", padding:"16px", boxShadow:"0 2px 12px rgba(155,89,182,0.08)", border:`1px solid ${border}` }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+              <div style={{ fontSize:"14px", fontWeight:"700", color:textPri }}>📆 月曜日始まり</div>
+              <div onClick={() => {
+                const next = !weekStartsMonday;
+                setWeekStartsMonday(next);
+                try { localStorage.setItem("week_starts_monday", next?"1":"0"); } catch {}
+              }} style={{
+                width:48, height:28, borderRadius:"14px", cursor:"pointer",
+                background: weekStartsMonday ? themeColor : "#ccc",
+                position:"relative", transition:"background 0.2s",
+              }}>
+                <div style={{
+                  width:22, height:22, borderRadius:"50%", background:"#fff",
+                  position:"absolute", top:3,
+                  left: weekStartsMonday ? 23 : 3,
+                  transition:"left 0.2s",
+                  boxShadow:"0 1px 4px rgba(0,0,0,0.3)",
+                }} />
+              </div>
+            </div>
+            <div style={{ fontSize:"11px", color:textSec, marginTop:6 }}>オンで月曜始まり、オフで日曜始まり</div>
+          </div>
+
           {/* Theme color setting */}
           <div style={{ marginBottom:20, background:bgCard, borderRadius:"16px", padding:"16px", boxShadow:"0 2px 12px rgba(155,89,182,0.08)", border:`1px solid ${border}` }}>
             <div style={{ fontSize:"12px", fontWeight:"700", color:"#9A8FAA", marginBottom:12, letterSpacing:"1px" }}>テーマカラー</div>
@@ -870,6 +932,7 @@ export default function FamilyCalendar() {
           onDelete={() => deleteMember(editingMember.id)}
           onBack={() => setEditingMember(null)}
           themeGrad={themeGrad}
+          textSec={textSec}
         />
       )}
     </div>
@@ -953,6 +1016,8 @@ export default function FamilyCalendar() {
           prevMonth={prevMonth} nextMonth={nextMonth}
           border={border} bgSub={bgSub} bg={bg} themeColor={themeColor} textPri={textPri}
           badgeFontSize={badgeFontSize} DAYS_JP={DAYS_JP}
+          showBadgeEmoji={showBadgeEmoji} setShowEventDetail={setShowEventDetail}
+          weekStartsMonday={weekStartsMonday}
         />}
         {view==="day" && (
           selectedDate
