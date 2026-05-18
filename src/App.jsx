@@ -241,7 +241,7 @@ function MonthView({
   firstDay, daysInMonth, dateStr, todayStr, selectedDate, setSelectedDate,
   getEventsForDate, setView, dragX, setDragX, transitioning, setTransitioning,
   prevMonth, nextMonth, border, bgSub, bg, themeColor, textPri, badgeFontSize,
-  DAYS_JP, showBadgeEmoji, setShowEventDetail, weekStartsMonday
+  DAYS_JP, showBadgeEmoji, setShowEventDetail, weekStartsMonday, badgeEmojiSize
 }) {
   const lastTap = useRef({ ds: null, time: 0 });
   const touchStart = useRef(null);
@@ -331,7 +331,7 @@ function MonthView({
                   style={{ background:ev.color, borderRadius:"3px", padding:"1px 3px", marginBottom:1,
                     fontSize:badgeFontSize+"px", color:"#fff", fontWeight:"600",
                     whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
-                    width:"100%", boxSizing:"border-box" }}>{showBadgeEmoji ? ev.emoji+" " : ""}{ev.title}</div>
+                    width:"100%", boxSizing:"border-box" }}>{showBadgeEmoji ? <span style={{fontSize:badgeEmojiSize+"px"}}>{ev.emoji}</span> : ""}{showBadgeEmoji ? " " : ""}{ev.title}</div>
               ))}
               {dayEvents.length > 3 && <div style={{ fontSize:"8px", color:"#9B59B6", fontWeight:"700", paddingLeft:2 }}>+{dayEvents.length-3}</div>}
             </div>
@@ -384,6 +384,9 @@ export default function FamilyCalendar() {
   const [isNewMember, setIsNewMember] = useState(false);
   const [badgeFontSize, setBadgeFontSize] = useState(() => {
     try { return Number(localStorage.getItem("badge_font_size")) || 9; } catch { return 9; }
+  });
+  const [badgeEmojiSize, setBadgeEmojiSize] = useState(() => {
+    try { return Number(localStorage.getItem("badge_emoji_size")) || 11; } catch { return 11; }
   });
   const [themeColor, setThemeColor] = useState(() => {
     try { return localStorage.getItem("theme_color") || "#9B59B6"; } catch { return "#9B59B6"; }
@@ -774,12 +777,40 @@ export default function FamilyCalendar() {
               }}>{badgeFontSize}px</span>
             </div>
             {/* Preview */}
-            <div style={{ marginTop:12, background:"#f3e8ff", borderRadius:"8px", padding:"8px 10px" }}>
+            <div style={{ marginTop:12, background: darkMode?"#1e2a4a":"#f3e8ff", borderRadius:"8px", padding:"8px 10px" }}>
               <div style={{
                 background:"#4D96FF22", borderLeft:"3px solid #4D96FF",
                 borderRadius:"4px", padding:"2px 6px",
-                fontSize:badgeFontSize+"px", color:"#3D2B5E", fontWeight:"600",
-              }}>📅 プレビュー：家族でピクニック</div>
+                fontSize:badgeFontSize+"px", color:textPri, fontWeight:"600",
+              }}><span style={{fontSize:badgeEmojiSize+"px"}}>📅</span> プレビュー：家族でピクニック</div>
+            </div>
+          </div>
+
+          {/* Emoji size setting */}
+          <div style={{ marginBottom:20, background:bgCard, borderRadius:"16px", padding:"16px", boxShadow:"0 2px 12px rgba(155,89,182,0.08)", border:`1px solid ${border}` }}>
+            <div style={{ fontSize:"12px", fontWeight:"700", color:textSec, marginBottom:12, letterSpacing:"1px" }}>アイコンサイズ</div>
+            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+              <span style={{ fontSize:"10px", color:textSec }}>小</span>
+              <input type="range" min="8" max="16" value={badgeEmojiSize}
+                onChange={e => {
+                  const v = Number(e.target.value);
+                  setBadgeEmojiSize(v);
+                  try { localStorage.setItem("badge_emoji_size", v); } catch {}
+                }}
+                style={{ flex:1, accentColor:themeColor }}
+              />
+              <span style={{ fontSize:"14px", color:textSec }}>大</span>
+              <span style={{
+                minWidth:32, textAlign:"center", fontSize:"13px", fontWeight:"700",
+                color:themeColor, background:themeColor+"22", borderRadius:"8px", padding:"2px 8px"
+              }}>{badgeEmojiSize}px</span>
+            </div>
+            <div style={{ marginTop:12, background: darkMode?"#1e2a4a":"#f3e8ff", borderRadius:"8px", padding:"8px 10px" }}>
+              <div style={{
+                background:"#4D96FF22", borderLeft:"3px solid #4D96FF",
+                borderRadius:"4px", padding:"2px 6px",
+                fontSize:badgeFontSize+"px", color:textPri, fontWeight:"600",
+              }}><span style={{fontSize:badgeEmojiSize+"px"}}>📅</span> プレビュー：家族でピクニック</div>
             </div>
           </div>
 
@@ -1015,7 +1046,7 @@ export default function FamilyCalendar() {
           dragX={dragX} setDragX={setDragX} transitioning={transitioning} setTransitioning={setTransitioning}
           prevMonth={prevMonth} nextMonth={nextMonth}
           border={border} bgSub={bgSub} bg={bg} themeColor={themeColor} textPri={textPri}
-          badgeFontSize={badgeFontSize} DAYS_JP={DAYS_JP}
+          badgeFontSize={badgeFontSize} badgeEmojiSize={badgeEmojiSize} DAYS_JP={DAYS_JP}
           showBadgeEmoji={showBadgeEmoji} setShowEventDetail={setShowEventDetail}
           weekStartsMonday={weekStartsMonday}
         />}
