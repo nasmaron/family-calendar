@@ -342,6 +342,119 @@ function MonthView({
   );
 }
 
+function DayView({
+  selectedDate, getEventsForDate, setShowEventDetail, openAdd,
+  bg, bgCard, textPri, textSec, themeColor, themeGrad, border,
+  members, DAYS_JP, dayDragX, setDayDragX, dayTransitioning, setDayTransitioning,
+  moveDay, addBtnStyle
+}) {
+  const dayEvents = selectedDate ? getEventsForDate(selectedDate) : [];
+  const dp = selectedDate ? selectedDate.split("-") : [];
+
+  const touchStartX = useRef(null);
+  const touchStartY = useRef(null);
+  const isHorizontal = useRef(false);
+
+  const onTouchStart = (e) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+    isHorizontal.current = false;
+    setDayDragX(0);
+  };
+  const onTouchMove = (e) => {
+    if (touchStartX.current === null) return;
+    const dx = e.touches[0].clientX - touchStartX.current;
+    const dy = e.touches[0].clientY - touchStartY.current;
+    if (!isHorizontal.current && Math.abs(dx) + Math.abs(dy) > 10) {
+      isHorizontal.current = Math.abs(dx) > Math.abs(dy);
+    }
+    if (isHorizontal.current) {
+      e.preventDefault();
+      setDayDragX(dx);
+    }
+  };
+  const onTouchEnd = (e) => {
+    if (touchStartX.current === null) return;
+    const diff = e.changedTouches[0].clientX - touchStartX.current;
+    if (isHorizontal.current && Math.abs(diff) > 60) {
+      setDayTransitioning(true);
+      setDayDragX(diff > 0 ? window.innerWidth : -window.innerWidth);
+      setTimeout(() => {
+        moveDay(diff > 0 ? -1 : 1);
+        setDayDragX(0);
+        setDayTransitioning(false);
+      }, 200);
+    } else {
+      setDayTransitioning(true);
+      setDayDragX(0);
+      setTimeout(() => setDayTransitioning(false), 200);
+    }
+    touchStartX.current = null;
+    touchStartY.current = null;
+    isHorizontal.current = false;
+  };
+
+  return (
+    <div style={{ flex:1, overflow:"hidden", background:bg, display:"flex", flexDirection:"column" }}
+      onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
+    >
+      {selectedDate && (
+        <div style={{ display:"flex", alignItems:"center", padding:"16px 16px 8px", flexShrink:0 }}>
+          <button onClick={() => moveDay(-1)} style={{ background:"none", border:"none", fontSize:"22px", cursor:"pointer", color:textSec, padding:"0 8px" }}>‹</button>
+          <div style={{ flex:1, textAlign:"center" }}>
+            <span style={{ fontSize:"22px", fontWeight:"800", color:textPri }}>{dp[1]}月{dp[2]}日</span>
+            <span style={{ fontSize:"14px", color:textSec, marginLeft:8 }}>{DAYS_JP[new Date(selectedDate).getDay()]}曜日</span>
+          </div>
+          <button onClick={() => moveDay(1)} style={{ background:"none", border:"none", fontSize:"22px", cursor:"pointer", color:textSec, padding:"0 8px" }}>›</button>
+        </div>
+      )}
+      <div style={{
+        flex:1, overflow:"auto", padding:"8px 16px 16px",
+        transform:`translateX(${dayDragX}px)`,
+        transition: dayTransitioning ? "transform 0.2s ease" : "none",
+      }}>
+        {dayEvents.length === 0 ? (
+          <div style={{ textAlign:"center", padding:"48px 0", color:textSec }}>
+            <div style={{ fontSize:"48px", marginBottom:12 }}>📭</div>
+            <div style={{ fontSize:"14px" }}>予定はありません</div>
+            <button onClick={() => openAdd(selectedDate)} style={addBtnStyle}>＋ 追加する</button>
+          </div>
+        ) : (
+          <>
+            {dayEvents.map(ev => (
+              <div key={ev.id} onClick={() => setShowEventDetail(ev)}
+                style={{
+                  background:bgCard, borderRadius:"16px", padding:"16px", marginBottom:12,
+                  borderLeft:`5px solid ${ev.color}`,
+                  boxShadow:"0 2px 12px rgba(155,89,182,0.08)", cursor:"pointer", transition:"transform 0.15s",
+                }}
+                onMouseEnter={e => e.currentTarget.style.transform="translateX(4px)"}
+                onMouseLeave={e => e.currentTarget.style.transform=""}
+              >
+                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
+                  <span style={{ fontSize:"24px" }}>{ev.emoji}</span>
+                  <div style={{ fontWeight:"700", fontSize:"16px", color:textPri }}>{ev.title}</div>
+                </div>
+                {ev.startTime && <div style={{ fontSize:"13px", color:textSec, marginBottom:8 }}>🕐 {ev.startTime}{ev.endTime ? " 〜 "+ev.endTime : ""}</div>}
+                {ev.memo && <div style={{ fontSize:"13px", color:textSec, marginBottom:8 }}>{ev.memo}</div>}
+                <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                  {(ev.members||[]).map(mid => {
+                    const m = members.find(x => x.id===mid);
+                    return m ? (
+                      <span key={mid} style={{ background:m.color+"22", color:m.color, borderRadius:"20px", padding:"2px 10px", fontSize:"12px", fontWeight:"700" }}>{m.emoji} {m.name}</span>
+                    ) : null;
+                  })}
+                </div>
+              </div>
+            ))}
+            <button onClick={() => openAdd(selectedDate)} style={addBtnStyle}>＋ 予定を追加</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function FamilyCalendar() {
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
@@ -567,119 +680,6 @@ export default function FamilyCalendar() {
     });
   };
 
-  const DayView = () => {
-    const dayEvents = selectedDate ? getEventsForDate(selectedDate) : [];
-    const dp = selectedDate ? selectedDate.split("-") : [];
-
-    const touchStartX = useRef(null);
-    const touchStartY = useRef(null);
-    const isHorizontal = useRef(false);
-
-    const onTouchStart = (e) => {
-      touchStartX.current = e.touches[0].clientX;
-      touchStartY.current = e.touches[0].clientY;
-      isHorizontal.current = false;
-      setDayDragX(0);
-    };
-    const onTouchMove = (e) => {
-      if (touchStartX.current === null) return;
-      const dx = e.touches[0].clientX - touchStartX.current;
-      const dy = e.touches[0].clientY - touchStartY.current;
-      // 最初の動きで横か縦か判定
-      if (!isHorizontal.current && Math.abs(dx) + Math.abs(dy) > 10) {
-        isHorizontal.current = Math.abs(dx) > Math.abs(dy);
-      }
-      if (isHorizontal.current) {
-        e.preventDefault();
-        setDayDragX(dx);
-      }
-    };
-    const onTouchEnd = (e) => {
-      if (touchStartX.current === null) return;
-      const diff = e.changedTouches[0].clientX - touchStartX.current;
-      if (isHorizontal.current && Math.abs(diff) > 60) {
-        setDayTransitioning(true);
-        setDayDragX(diff > 0 ? window.innerWidth : -window.innerWidth);
-        setTimeout(() => {
-          moveDay(diff > 0 ? -1 : 1);
-          setDayDragX(0);
-          setDayTransitioning(false);
-        }, 200);
-      } else {
-        setDayTransitioning(true);
-        setDayDragX(0);
-        setTimeout(() => setDayTransitioning(false), 200);
-      }
-      touchStartX.current = null;
-      touchStartY.current = null;
-      isHorizontal.current = false;
-    };
-
-    return (
-      <div style={{ flex:1, overflow:"hidden", background:bg, display:"flex", flexDirection:"column" }}
-        onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
-      >
-        {/* 日付ヘッダー */}
-        {selectedDate && (
-          <div style={{ display:"flex", alignItems:"center", padding:"16px 16px 8px", flexShrink:0 }}>
-            <button onClick={() => moveDay(-1)} style={{ background:"none", border:"none", fontSize:"22px", cursor:"pointer", color:textSec, padding:"0 8px" }}>‹</button>
-            <div style={{ flex:1, textAlign:"center" }}>
-              <span style={{ fontSize:"22px", fontWeight:"800", color:textPri }}>{dp[1]}月{dp[2]}日</span>
-              <span style={{ fontSize:"14px", color:textSec, marginLeft:8 }}>{DAYS_JP[new Date(selectedDate).getDay()]}曜日</span>
-            </div>
-            <button onClick={() => moveDay(1)} style={{ background:"none", border:"none", fontSize:"22px", cursor:"pointer", color:textSec, padding:"0 8px" }}>›</button>
-          </div>
-        )}
-        {/* コンテンツ */}
-        <div style={{
-          flex:1, overflow:"auto", padding:"8px 16px 16px",
-          transform:`translateX(${dayDragX}px)`,
-          transition: dayTransitioning ? "transform 0.2s ease" : "none",
-        }}>
-        {dayEvents.length===0 ? (
-          <div style={{ textAlign:"center", padding:"48px 0", color:"#C9B8E8" }}>
-            <div style={{ fontSize:"48px", marginBottom:12 }}>📭</div>
-            <div style={{ fontSize:"14px" }}>予定はありません</div>
-            <button onClick={() => openAdd(selectedDate)} style={addBtnStyle}>＋ 追加する</button>
-          </div>
-        ) : (
-          <>
-            {dayEvents.map(ev => (
-              <div key={ev.id} onClick={() => setShowEventDetail(ev)}
-                style={{
-                  background:bgCard, borderRadius:"16px", padding:"16px", marginBottom:12,
-                  borderLeft:`5px solid ${ev.color}`,
-                  boxShadow:"0 2px 12px rgba(155,89,182,0.08)", cursor:"pointer", transition:"transform 0.15s",
-                }}
-                onMouseEnter={e => e.currentTarget.style.transform="translateX(4px)"}
-                onMouseLeave={e => e.currentTarget.style.transform=""}
-              >
-                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
-                  <span style={{ fontSize:"24px" }}>{ev.emoji}</span>
-                  <div style={{ fontWeight:"700", fontSize:"16px", color:textPri }}>{ev.title}</div>
-                </div>
-                {ev.memo && <div style={{ fontSize:"13px", color:textSec, marginBottom:8 }}>{ev.memo}</div>}
-                {ev.startTime && <div style={{ fontSize:"13px", color:textSec, marginBottom:8 }}>🕐 {ev.startTime}{ev.endTime ? " 〜 "+ev.endTime : ""}</div>}
-                <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                  {ev.members.map(mid => {
-                    const m = members.find(x => x.id===mid);
-                    return m ? (
-                      <span key={mid} style={{
-                        background:m.color+"22", color:m.color, borderRadius:"20px",
-                        padding:"2px 10px", fontSize:"12px", fontWeight:"700",
-                      }}>{m.emoji} {m.name}</span>
-                    ) : null;
-                  })}
-                </div>
-              </div>
-            ))}
-            <button onClick={() => openAdd(selectedDate)} style={addBtnStyle}>＋ 予定を追加</button>
-          </>
-        )}
-        </div>
-      </div>
-    );
-  };
 
   const ListView = () => {
     const monthEvents = events
@@ -1162,7 +1162,18 @@ export default function FamilyCalendar() {
         />}
         {view==="day" && (
           selectedDate
-            ? <DayView />
+            ? <DayView
+                selectedDate={selectedDate}
+                getEventsForDate={getEventsForDate}
+                setShowEventDetail={setShowEventDetail}
+                openAdd={openAdd}
+                bg={bg} bgCard={bgCard} textPri={textPri} textSec={textSec}
+                themeColor={themeColor} themeGrad={themeGrad} border={border}
+                members={members} DAYS_JP={DAYS_JP}
+                dayDragX={dayDragX} setDayDragX={setDayDragX}
+                dayTransitioning={dayTransitioning} setDayTransitioning={setDayTransitioning}
+                moveDay={moveDay} addBtnStyle={addBtnStyle}
+              />
             : <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", color:"#C9B8E8", flexDirection:"column", gap:12 }}>
                 <div style={{ fontSize:"48px" }}>📅</div>
                 <div>月表示から日付を選択してください</div>
