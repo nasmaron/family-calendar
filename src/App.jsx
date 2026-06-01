@@ -465,7 +465,14 @@ export default function FamilyCalendar() {
   const [members, setMembers] = useState(DEFAULT_MEMBERS);
   const [view, setView] = useState("month");
   const [selectedDate, setSelectedDate] = useState(null);
-  const [filterMembers, setFilterMembers] = useState([]);  // 空=全員
+  const [filterMembers, setFilterMembers] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("filter_members")) || []; } catch { return []; }
+  });
+
+  const updateFilterMembers = (next) => {
+    setFilterMembers(next);
+    try { localStorage.setItem("filter_members", JSON.stringify(next)); } catch {}
+  };
   const [saving, setSaving] = useState(false);
   const [notification, setNotification] = useState(null);
 
@@ -1107,7 +1114,7 @@ export default function FamilyCalendar() {
 
         {/* メンバーフィルター（複数選択） */}
         <div style={{ display:"flex", gap:5, paddingBottom:8, overflowX:"auto" }}>
-          <button onClick={() => setFilterMembers([])} style={{
+          <button onClick={() => updateFilterMembers([])} style={{
             background: filterMembers.length===0?"rgba(255,255,255,0.95)":"rgba(255,255,255,0.2)",
             color: filterMembers.length===0?themeColor:"#fff",
             border:"none", borderRadius:"20px", padding:"3px 10px", fontSize:"11px",
@@ -1116,8 +1123,8 @@ export default function FamilyCalendar() {
           {members.map(m => {
             const on = filterMembers.includes(m.id);
             return (
-              <button key={m.id} onClick={() => setFilterMembers(prev =>
-                on ? prev.filter(x => x!==m.id) : [...prev, m.id]
+              <button key={m.id} onClick={() => updateFilterMembers(
+                on ? filterMembers.filter(x => x!==m.id) : [...filterMembers, m.id]
               )} style={{
                 background: on?"rgba(255,255,255,0.95)":"rgba(255,255,255,0.2)",
                 color: on?m.color:"#fff",
