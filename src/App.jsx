@@ -327,11 +327,11 @@ function MonthView({
                 }}>{holiday}</div>
               )}
               {dayEvents.slice(0,3).map(ev => (
-                <div key={ev.id} onClick={e => { e.stopPropagation(); setShowEventDetail(ev); }}
+                <div key={ev.id}
                   style={{ background:ev.color, borderRadius:"3px", padding:"1px 3px", marginBottom:1,
                     fontSize:badgeFontSize+"px", color:"#fff", fontWeight:"600",
                     whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
-                    width:"100%", boxSizing:"border-box" }}>{showBadgeEmoji ? <span style={{fontSize:badgeEmojiSize+"px"}}>{ev.emoji}</span> : ""}{showBadgeEmoji ? " " : ""}{ev.title}</div>
+                    width:"100%", boxSizing:"border-box", pointerEvents:"none" }}>{showBadgeEmoji ? <span style={{fontSize:badgeEmojiSize+"px"}}>{ev.emoji}</span> : ""}{showBadgeEmoji ? " " : ""}{ev.title}</div>
               ))}
               {dayEvents.length > 3 && <div style={{ fontSize:"8px", color:"#9B59B6", fontWeight:"700", paddingLeft:2 }}>+{dayEvents.length-3}</div>}
             </div>
@@ -379,7 +379,9 @@ export default function FamilyCalendar() {
 
   const [showSettings, setShowSettings] = useState(false);
   const [dragX, setDragX] = useState(0);
-  const [transitioning, setTransitioning] = useState(false);  const [editingMember, setEditingMember] = useState(null);
+  const [transitioning, setTransitioning] = useState(false);
+  const [dayDragX, setDayDragX] = useState(0);
+  const [dayTransitioning, setDayTransitioning] = useState(false);  const [editingMember, setEditingMember] = useState(null);
   const [memberForm, setMemberForm] = useState({ name:"", color:"#FF6B9D", emoji:"🌸" });
   const [isNewMember, setIsNewMember] = useState(false);
   const [badgeFontSize, setBadgeFontSize] = useState(() => {
@@ -444,19 +446,51 @@ export default function FamilyCalendar() {
   const openAdd = (date) => {
     const d = date || selectedDate || todayStr;
     setEditingEvent(null);
-    setForm({ title:"", date:d, members:[], color:"#4D96FF", emoji:"📅", memo:"" });
+    setForm({ title:"", date:d, endDate:"", startTime:"", endTime:"", members:[], color:"#4D96FF", emoji:"📅", memo:"", categoryId:"", repeat:"none", repeatDays:[], repeatUntil:"" });
     setShowEventModal(true);
   };
   const openEdit = (ev) => {
     setEditingEvent(ev);
-    setForm({ startTime:"", endTime:"", ...ev });
+    setForm({ startTime:"", endTime:"", endDate:"", repeat:"none", repeatDays:[], repeatUntil:"", ...ev });
     setShowEventModal(true);
   };
   const saveForm = async () => {
     if (!form.title.trim() || !form.date) return;
-    const newEvents = editingEvent
-      ? events.map(e => e.id === editingEvent.id ? { ...form, id: e.id } : e)
-      : [...events, { ...form, id: "e" + Date.now() }];
+    let newEvents;
+    if (editingEvent) {
+      newEvents = events.map(e => e.id === editingEvent.id ? { ...form, id: e.id } : e);
+    } else if (form.repeat !== "none" && form.repeatUntil && form.repeatUntil > form.date) {
+      // 繰り返し予定を生成
+      const generated = [];
+      const until = new Date(form.repeatUntil);
+      let cur = new Date(form.date);
+      const groupId = "g" + Date.now();
+      while (cur <= until) {
+        let match = false;
+        if (form.repeat === "daily") match = true;
+        else if (form.repeat === "weekly") match = form.repeatDays.includes(cur.getDay());
+        else if (form.repeat === "monthly") match = cur.getDate() === new Date(form.date).getDate();
+        if (match) {
+          const ds = cur.toISOString().slice(0,10);
+          generated.push({ ...form, date:ds, endDate:"", repeat:"none", id:"e"+Date.now()+Math.random(), groupId });
+        }
+        cur.setDate(cur.getDate()+1);
+      }
+      newEvents = [...events, ...generated];
+    } else if (form.endDate && form.endDate > form.date) {
+      // 期間指定：各日にイベントを生成
+      const generated = [];
+      let cur = new Date(form.date);
+      const end = new Date(form.endDate);
+      while (cur <= end) {
+        const ds = cur.toISOString().slice(0,10);
+        generated.push({ ...form, date:ds, endDate:"", id:"e"+Date.now()+Math.random() });
+        cur.setDate(cur.getDate()+1);
+      }
+      newEvents = [...events, ...generated];
+    } else {
+      newEvents = [...events, { ...form, id:"e"+Date.now() }];
+    }
     setEvents(newEvents);
     await saveEvents(newEvents);
     setShowEventModal(false);
@@ -524,16 +558,65 @@ export default function FamilyCalendar() {
   const DayView = () => {
     const dayEvents = selectedDate ? getEventsForDate(selectedDate) : [];
     const dp = selectedDate ? selectedDate.split("-") : [];
+
+    const touchStartX = useRef(null);
+
+    const moveDay = (direction) => {
+      if (!selectedDate) return;
+      const d = new Date(selectedDate);
+      d.setDate(d.getDate() + direction);
+      const newDs = d.toISOString().slice(0,10);
+      // 月をまたぐ場合は月も更新
+      setYear(d.getFullYear());
+      setMonth(d.getMonth());
+      setSelectedDate(newDs);
+    };
+
+    const onTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; setDayDragX(0); };
+    const onTouchMove = (e) => {
+      if (touchStartX.current === null) return;
+      setDayDragX(e.touches[0].clientX - touchStartX.current);
+    };
+    const onTouchEnd = (e) => {
+      if (touchStartX.current === null) return;
+      const diff = e.changedTouches[0].clientX - touchStartX.current;
+      if (Math.abs(diff) > 60) {
+        setDayTransitioning(true);
+        setDayDragX(diff > 0 ? window.innerWidth : -window.innerWidth);
+        setTimeout(() => {
+          moveDay(diff > 0 ? -1 : 1);
+          setDayDragX(0);
+          setDayTransitioning(false);
+        }, 200);
+      } else {
+        setDayTransitioning(true);
+        setDayDragX(0);
+        setTimeout(() => setDayTransitioning(false), 200);
+      }
+      touchStartX.current = null;
+    };
+
     return (
-      <div style={{ flex:1, overflow:"auto", padding:"16px", background:bg }}>
+      <div style={{ flex:1, overflow:"hidden", background:bg, display:"flex", flexDirection:"column", touchAction:"pan-y" }}
+        onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
+      >
+        {/* 日付ヘッダー */}
         {selectedDate && (
-          <div style={{ marginBottom:16 }}>
-            <div style={{ fontSize:"22px", fontWeight:"800", color:textPri }}>
-              {dp[1]}月{dp[2]}日
+          <div style={{ display:"flex", alignItems:"center", padding:"16px 16px 8px", flexShrink:0 }}>
+            <button onClick={() => moveDay(-1)} style={{ background:"none", border:"none", fontSize:"22px", cursor:"pointer", color:textSec, padding:"0 8px" }}>‹</button>
+            <div style={{ flex:1, textAlign:"center" }}>
+              <span style={{ fontSize:"22px", fontWeight:"800", color:textPri }}>{dp[1]}月{dp[2]}日</span>
               <span style={{ fontSize:"14px", color:textSec, marginLeft:8 }}>{DAYS_JP[new Date(selectedDate).getDay()]}曜日</span>
             </div>
+            <button onClick={() => moveDay(1)} style={{ background:"none", border:"none", fontSize:"22px", cursor:"pointer", color:textSec, padding:"0 8px" }}>›</button>
           </div>
         )}
+        {/* コンテンツ */}
+        <div style={{
+          flex:1, overflow:"auto", padding:"8px 16px 16px",
+          transform:`translateX(${dayDragX}px)`,
+          transition: dayTransitioning ? "transform 0.2s ease" : "none",
+        }}>
         {dayEvents.length===0 ? (
           <div style={{ textAlign:"center", padding:"48px 0", color:"#C9B8E8" }}>
             <div style={{ fontSize:"48px", marginBottom:12 }}>📭</div>
@@ -574,6 +657,7 @@ export default function FamilyCalendar() {
             <button onClick={() => openAdd(selectedDate)} style={addBtnStyle}>＋ 予定を追加</button>
           </>
         )}
+        </div>
       </div>
     );
   };
@@ -1028,7 +1112,14 @@ export default function FamilyCalendar() {
         {/* タブ */}
         <div style={{ display:"flex", gap:2 }}>
           {[["month","月"],["day","日"],["list","一覧"]].map(([v,label]) => (
-            <button key={v} onClick={() => setView(v)} style={{
+            <button key={v} onClick={() => {
+              if (v === "day" && !selectedDate) {
+                setSelectedDate(todayStr);
+                setYear(today.getFullYear());
+                setMonth(today.getMonth());
+              }
+              setView(v);
+            }} style={{
               flex:1, background: view===v?"rgba(255,255,255,0.95)":"transparent",
               color: view===v?themeColor:"rgba(255,255,255,0.8)",
               border:"none", padding:"7px 0", fontSize:"13px", fontWeight:"700",
@@ -1171,12 +1262,27 @@ export default function FamilyCalendar() {
 
             <div style={{ marginBottom:14 }}>
               <div style={{ fontSize:"12px", fontWeight:"700", color:textSec, marginBottom:6 }}>日付 *</div>
-              <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date:e.target.value }))}
-                style={{
-                  width:"100%", padding:"12px 16px", borderRadius:"14px",
-                  border:`2px solid ${border}`, fontSize:"16px", outline:"none",
-                  boxSizing:"border-box", color:textPri, background:bg,
-                }} />
+              <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date:e.target.value }))}
+                  style={{
+                    flex:1, padding:"12px 16px", borderRadius:"14px",
+                    border:`2px solid ${border}`, fontSize:"16px", outline:"none",
+                    boxSizing:"border-box", color:textPri, background:bg,
+                  }} />
+                <span style={{ color:textSec, fontWeight:"700", flexShrink:0 }}>〜</span>
+                <input type="date" value={form.endDate||""} onChange={e => setForm(f => ({ ...f, endDate:e.target.value }))}
+                  placeholder="終了日（任意）"
+                  style={{
+                    flex:1, padding:"12px 16px", borderRadius:"14px",
+                    border:`2px solid ${form.endDate ? themeColor : border}`, fontSize:"16px", outline:"none",
+                    boxSizing:"border-box", color:textPri, background:bg,
+                  }} />
+              </div>
+              {form.endDate && form.endDate > form.date && (
+                <div style={{ fontSize:"11px", color:themeColor, marginTop:4, fontWeight:"600" }}>
+                  📅 {Math.round((new Date(form.endDate)-new Date(form.date))/86400000)+1}日間の予定を追加します
+                </div>
+              )}
             </div>
 
             <div style={{ marginBottom:14 }}>
@@ -1229,6 +1335,57 @@ export default function FamilyCalendar() {
                   }}>{cat.name}</button>
                 ))}
               </div>
+            </div>
+
+            {/* 繰り返し */}
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:"12px", fontWeight:"700", color:textSec, marginBottom:8 }}>繰り返し</div>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:8 }}>
+                {[["none","なし"],["daily","毎日"],["weekly","毎週"],["monthly","毎月"]].map(([val,label]) => (
+                  <button key={val} onClick={() => setForm(f => ({ ...f, repeat:val, repeatDays:[] }))} style={{
+                    padding:"6px 14px", borderRadius:"20px", border:"2px solid",
+                    borderColor: form.repeat===val ? themeColor : border,
+                    background: form.repeat===val ? themeColor+"22" : bg,
+                    color: form.repeat===val ? themeColor : textSec,
+                    fontWeight:"700", fontSize:"13px", cursor:"pointer",
+                  }}>{label}</button>
+                ))}
+              </div>
+              {/* 毎週：曜日選択 */}
+              {form.repeat === "weekly" && (
+                <div style={{ display:"flex", gap:6, marginBottom:8 }}>
+                  {["日","月","火","水","木","金","土"].map((d,i) => (
+                    <button key={i} onClick={() => setForm(f => ({
+                      ...f, repeatDays: f.repeatDays.includes(i)
+                        ? f.repeatDays.filter(x => x!==i) : [...f.repeatDays, i]
+                    }))} style={{
+                      width:36, height:36, borderRadius:"50%", border:"2px solid",
+                      borderColor: form.repeatDays.includes(i) ? themeColor : border,
+                      background: form.repeatDays.includes(i) ? themeColor : bg,
+                      color: form.repeatDays.includes(i) ? "#fff" : i===0?"#FF6B9D":i===6?"#4D96FF":textSec,
+                      fontWeight:"700", fontSize:"12px", cursor:"pointer",
+                    }}>{d}</button>
+                  ))}
+                </div>
+              )}
+              {/* 繰り返し終了日 */}
+              {form.repeat !== "none" && (
+                <div>
+                  <div style={{ fontSize:"11px", color:textSec, marginBottom:4 }}>繰り返し終了日</div>
+                  <input type="date" value={form.repeatUntil||""} onChange={e => setForm(f => ({ ...f, repeatUntil:e.target.value }))}
+                    style={{
+                      width:"100%", padding:"10px 14px", borderRadius:"14px",
+                      border:`2px solid ${form.repeatUntil ? themeColor : border}`,
+                      fontSize:"15px", outline:"none", boxSizing:"border-box",
+                      color:textPri, background:bg,
+                    }} />
+                  {form.repeat === "weekly" && form.repeatDays.length > 0 && form.repeatUntil && (
+                    <div style={{ fontSize:"11px", color:themeColor, marginTop:4, fontWeight:"600" }}>
+                      📅 約{Math.round(Math.abs(new Date(form.repeatUntil)-new Date(form.date))/86400000/7 * form.repeatDays.length)}件の予定を追加します
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div style={{ marginBottom:24 }}>
