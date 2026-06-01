@@ -327,11 +327,11 @@ function MonthView({
                 }}>{holiday}</div>
               )}
               {dayEvents.slice(0,3).map(ev => (
-                <div key={ev.id} onClick={e => { e.stopPropagation(); setShowEventDetail(ev); }}
+                <div key={ev.id}
                   style={{ background:ev.color, borderRadius:"3px", padding:"1px 3px", marginBottom:1,
                     fontSize:badgeFontSize+"px", color:"#fff", fontWeight:"600",
                     whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
-                    width:"100%", boxSizing:"border-box" }}>{showBadgeEmoji ? <span style={{fontSize:badgeEmojiSize+"px"}}>{ev.emoji}</span> : ""}{showBadgeEmoji ? " " : ""}{ev.title}</div>
+                    width:"100%", boxSizing:"border-box", pointerEvents:"none" }}>{showBadgeEmoji ? <span style={{fontSize:badgeEmojiSize+"px"}}>{ev.emoji}</span> : ""}{showBadgeEmoji ? " " : ""}{ev.title}</div>
               ))}
               {dayEvents.length > 3 && <div style={{ fontSize:"8px", color:"#9B59B6", fontWeight:"700", paddingLeft:2 }}>+{dayEvents.length-3}</div>}
             </div>
