@@ -555,32 +555,49 @@ export default function FamilyCalendar() {
   };
 
 
+  const moveDay = (direction) => {
+    setSelectedDate(prev => {
+      if (!prev) return prev;
+      const d = new Date(prev);
+      d.setDate(d.getDate() + direction);
+      const newDs = d.toISOString().slice(0,10);
+      setYear(d.getFullYear());
+      setMonth(d.getMonth());
+      return newDs;
+    });
+  };
+
   const DayView = () => {
     const dayEvents = selectedDate ? getEventsForDate(selectedDate) : [];
     const dp = selectedDate ? selectedDate.split("-") : [];
 
     const touchStartX = useRef(null);
+    const touchStartY = useRef(null);
+    const isHorizontal = useRef(false);
 
-    const moveDay = (direction) => {
-      if (!selectedDate) return;
-      const d = new Date(selectedDate);
-      d.setDate(d.getDate() + direction);
-      const newDs = d.toISOString().slice(0,10);
-      // 月をまたぐ場合は月も更新
-      setYear(d.getFullYear());
-      setMonth(d.getMonth());
-      setSelectedDate(newDs);
+    const onTouchStart = (e) => {
+      touchStartX.current = e.touches[0].clientX;
+      touchStartY.current = e.touches[0].clientY;
+      isHorizontal.current = false;
+      setDayDragX(0);
     };
-
-    const onTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; setDayDragX(0); };
     const onTouchMove = (e) => {
       if (touchStartX.current === null) return;
-      setDayDragX(e.touches[0].clientX - touchStartX.current);
+      const dx = e.touches[0].clientX - touchStartX.current;
+      const dy = e.touches[0].clientY - touchStartY.current;
+      // 最初の動きで横か縦か判定
+      if (!isHorizontal.current && Math.abs(dx) + Math.abs(dy) > 10) {
+        isHorizontal.current = Math.abs(dx) > Math.abs(dy);
+      }
+      if (isHorizontal.current) {
+        e.preventDefault();
+        setDayDragX(dx);
+      }
     };
     const onTouchEnd = (e) => {
       if (touchStartX.current === null) return;
       const diff = e.changedTouches[0].clientX - touchStartX.current;
-      if (Math.abs(diff) > 60) {
+      if (isHorizontal.current && Math.abs(diff) > 60) {
         setDayTransitioning(true);
         setDayDragX(diff > 0 ? window.innerWidth : -window.innerWidth);
         setTimeout(() => {
@@ -594,10 +611,12 @@ export default function FamilyCalendar() {
         setTimeout(() => setDayTransitioning(false), 200);
       }
       touchStartX.current = null;
+      touchStartY.current = null;
+      isHorizontal.current = false;
     };
 
     return (
-      <div style={{ flex:1, overflow:"hidden", background:bg, display:"flex", flexDirection:"column", touchAction:"pan-y" }}
+      <div style={{ flex:1, overflow:"hidden", background:bg, display:"flex", flexDirection:"column" }}
         onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
       >
         {/* 日付ヘッダー */}
