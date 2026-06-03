@@ -566,12 +566,12 @@ export default function FamilyCalendar() {
   const openAdd = (date) => {
     const d = date || selectedDate || todayStr;
     setEditingEvent(null);
-    setForm({ title:"", date:d, endDate:"", startTime:"", endTime:"", members:[], color:"#4D96FF", emoji:"📅", memo:"", categoryId:"", repeat:"none", repeatDays:[], repeatUntil:"" });
+    setForm({ title:"", date:d, endDate:"", startTime:"", endTime:"", members:[], color:"#4D96FF", emoji:"📅", memo:"", categoryId:"", repeat:"none", repeatDays:[], repeatFrom:"", repeatUntil:"" });
     setShowEventModal(true);
   };
   const openEdit = (ev) => {
     setEditingEvent(ev);
-    setForm({ startTime:"", endTime:"", endDate:"", repeat:"none", repeatDays:[], repeatUntil:"", ...ev });
+    setForm({ startTime:"", endTime:"", endDate:"", repeat:"none", repeatDays:[], repeatFrom:"", repeatUntil:"", ...ev });
     setShowEventModal(true);
   };
   const saveForm = async () => {
@@ -583,7 +583,7 @@ export default function FamilyCalendar() {
       // 繰り返し予定を生成
       const generated = [];
       const until = new Date(form.repeatUntil);
-      let cur = new Date(form.date);
+      let cur = new Date(form.repeatFrom && form.repeatFrom >= form.date ? form.repeatFrom : form.date);
       const groupId = "g" + Date.now();
       while (cur <= until) {
         let match = false;
@@ -1305,6 +1305,7 @@ export default function FamilyCalendar() {
                     flex:1, padding:"12px 16px", borderRadius:"14px",
                     border:`2px solid ${border}`, fontSize:"16px", outline:"none",
                     boxSizing:"border-box", color:textPri, background:bg,
+                  WebkitAppearance:"none", appearance:"none",
                   }} />
                 <span style={{ color:textSec, fontWeight:"700", flexShrink:0 }}>〜</span>
                 <input type="date" value={form.endDate||""} onChange={e => setForm(f => ({ ...f, endDate:e.target.value }))}
@@ -1313,6 +1314,7 @@ export default function FamilyCalendar() {
                     flex:1, padding:"12px 16px", borderRadius:"14px",
                     border:`2px solid ${form.endDate ? themeColor : border}`, fontSize:"16px", outline:"none",
                     boxSizing:"border-box", color:textPri, background:bg,
+                  WebkitAppearance:"none", appearance:"none",
                   }} />
               </div>
               {form.endDate && form.endDate > form.date && (
@@ -1330,6 +1332,7 @@ export default function FamilyCalendar() {
                     flex:1, padding:"12px 16px", borderRadius:"14px",
                     border:`2px solid ${border}`, fontSize:"16px", outline:"none",
                     boxSizing:"border-box", color:textPri, background:bg,
+                  WebkitAppearance:"none", appearance:"none",
                   }} />
                 <span style={{ color:textSec, fontWeight:"700" }}>〜</span>
                 <input type="time" value={form.endTime||""} onChange={e => setForm(f => ({ ...f, endTime:e.target.value }))}
@@ -1337,6 +1340,7 @@ export default function FamilyCalendar() {
                     flex:1, padding:"12px 16px", borderRadius:"14px",
                     border:`2px solid ${border}`, fontSize:"16px", outline:"none",
                     boxSizing:"border-box", color:textPri, background:bg,
+                  WebkitAppearance:"none", appearance:"none",
                   }} />
               </div>
             </div>
@@ -1375,7 +1379,7 @@ export default function FamilyCalendar() {
             </div>
 
             {/* 繰り返し */}
-            <div style={{ marginBottom:14 }}>
+            <div style={{ marginBottom:14, overflowX:"hidden" }}>
               <div style={{ fontSize:"12px", fontWeight:"700", color:textSec, marginBottom:8 }}>繰り返し</div>
               <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom:8 }}>
                 {[["none","なし"],["daily","毎日"],["weekly","毎週"],["monthly","毎月"]].map(([val,label]) => (
@@ -1405,20 +1409,37 @@ export default function FamilyCalendar() {
                   ))}
                 </div>
               )}
-              {/* 繰り返し終了日 */}
+              {/* 繰り返し開始日・終了日 */}
               {form.repeat !== "none" && (
-                <div>
-                  <div style={{ fontSize:"11px", color:textSec, marginBottom:4 }}>繰り返し終了日</div>
-                  <input type="date" value={form.repeatUntil||""} onChange={e => setForm(f => ({ ...f, repeatUntil:e.target.value }))}
-                    style={{
-                      width:"100%", padding:"10px 14px", borderRadius:"14px",
-                      border:`2px solid ${form.repeatUntil ? themeColor : border}`,
-                      fontSize:"15px", outline:"none", boxSizing:"border-box",
-                      color:textPri, background:bg,
-                    }} />
+                <div style={{ width:"100%", boxSizing:"border-box", overflow:"hidden" }}>
+                  <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:8 }}>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:"11px", color:textSec, marginBottom:4 }}>開始日</div>
+                      <input type="date" value={form.repeatFrom||form.date||""} onChange={e => setForm(f => ({ ...f, repeatFrom:e.target.value }))}
+                        style={{
+                          width:"100%", padding:"10px 10px", borderRadius:"14px",
+                          border:`2px solid ${form.repeatFrom ? themeColor : border}`,
+                          fontSize:"14px", outline:"none", boxSizing:"border-box",
+                          color:textPri, background:bg, display:"block",
+                          WebkitAppearance:"none", appearance:"none",
+                        }} />
+                    </div>
+                    <span style={{ color:textSec, fontWeight:"700", flexShrink:0, paddingTop:16 }}>〜</span>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:"11px", color:textSec, marginBottom:4 }}>終了日</div>
+                      <input type="date" value={form.repeatUntil||""} onChange={e => setForm(f => ({ ...f, repeatUntil:e.target.value }))}
+                        style={{
+                          width:"100%", padding:"10px 10px", borderRadius:"14px",
+                          border:`2px solid ${form.repeatUntil ? themeColor : border}`,
+                          fontSize:"14px", outline:"none", boxSizing:"border-box",
+                          color:textPri, background:bg, display:"block",
+                          WebkitAppearance:"none", appearance:"none",
+                        }} />
+                    </div>
+                  </div>
                   {form.repeat === "weekly" && form.repeatDays.length > 0 && form.repeatUntil && (
                     <div style={{ fontSize:"11px", color:themeColor, marginTop:4, fontWeight:"600" }}>
-                      📅 約{Math.round(Math.abs(new Date(form.repeatUntil)-new Date(form.date))/86400000/7 * form.repeatDays.length)}件の予定を追加します
+                      📅 約{Math.round(Math.abs(new Date(form.repeatUntil)-new Date(form.repeatFrom||form.date))/86400000/7 * form.repeatDays.length)}件の予定を追加します
                     </div>
                   )}
                 </div>
