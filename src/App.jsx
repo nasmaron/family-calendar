@@ -577,50 +577,65 @@ export default function FamilyCalendar() {
   const saveForm = async () => {
     if (!form.title.trim() || !form.date) return;
     let newEvents;
+    let counter = 0;
+    const genId = () => "e" + Date.now() + "_" + (counter++);
+
     if (editingEvent) {
       newEvents = events.map(e => e.id === editingEvent.id ? { ...form, id: e.id } : e);
-    } else if (form.repeat !== "none" && form.repeatUntil && form.repeatUntil > form.date) {
-      // 繰り返し予定を生成
+    } else if (form.repeat !== "none" && form.repeatUntil && form.repeatUntil >= form.date) {
       const generated = [];
-      const until = new Date(form.repeatUntil);
-      let cur = new Date(form.repeatFrom && form.repeatFrom >= form.date ? form.repeatFrom : form.date);
+      const until = new Date(form.repeatUntil + "T00:00:00");
+      let cur = new Date((form.repeatFrom && form.repeatFrom >= form.date ? form.repeatFrom : form.date) + "T00:00:00");
       const groupId = "g" + Date.now();
       while (cur <= until) {
         let match = false;
         if (form.repeat === "daily") match = true;
         else if (form.repeat === "weekly") match = form.repeatDays.includes(cur.getDay());
-        else if (form.repeat === "monthly") match = cur.getDate() === new Date(form.date).getDate();
+        else if (form.repeat === "monthly") match = cur.getDate() === new Date(form.date + "T00:00:00").getDate();
         if (match) {
           const ds = cur.toISOString().slice(0,10);
-          generated.push({ ...form, date:ds, endDate:"", repeat:"none", id:"e"+Date.now()+Math.random(), groupId });
+          generated.push({ ...form, date:ds, endDate:"", repeat:"none", id:genId(), groupId });
         }
         cur.setDate(cur.getDate()+1);
       }
       newEvents = [...events, ...generated];
-    } else if (form.endDate && form.endDate > form.date) {
-      // 期間指定：各日にイベントを生成
+    } else if (form.endDate && form.endDate >= form.date) {
       const generated = [];
-      let cur = new Date(form.date);
-      const end = new Date(form.endDate);
+      const groupId = "g" + Date.now();
+      let cur = new Date(form.date + "T00:00:00");
+      const end = new Date(form.endDate + "T00:00:00");
       while (cur <= end) {
         const ds = cur.toISOString().slice(0,10);
-        generated.push({ ...form, date:ds, endDate:"", id:"e"+Date.now()+Math.random() });
+        generated.push({ ...form, date:ds, endDate:"", id:genId(), groupId });
         cur.setDate(cur.getDate()+1);
       }
       newEvents = [...events, ...generated];
     } else {
-      newEvents = [...events, { ...form, id:"e"+Date.now() }];
+      newEvents = [...events, { ...form, id:genId() }];
     }
     setEvents(newEvents);
     await saveEvents(newEvents);
     setShowEventModal(false);
     setView("month");
-    showNotif(editingEvent ? "更新しました✨" : "追加しました🎉");
+    showNotif(editingEvent ? "更新しました✨" : `追加しました🎉`);
   };
+
   const deleteEvent = async (id) => {
-    const newEvents = events.filter(e => e.id !== id);
-    setEvents(newEvents);
-    await saveEvents(newEvents);
+    // groupIdがあれば同グループをまとめて削除するか確認
+    const target = events.find(e => e.id === id);
+    const groupEvents = target?.groupId ? events.filter(e => e.groupId === target.groupId) : [];
+    if (groupEvents.length > 1) {
+      const deleteAll = window.confirm(`この予定は${groupEvents.length}件の連続/繰り返し予定です。\n全て削除しますか？\n（キャンセルでこの1件だけ削除）`);
+      const newEvents = deleteAll
+        ? events.filter(e => e.groupId !== target.groupId)
+        : events.filter(e => e.id !== id);
+      setEvents(newEvents);
+      await saveEvents(newEvents);
+    } else {
+      const newEvents = events.filter(e => e.id !== id);
+      setEvents(newEvents);
+      await saveEvents(newEvents);
+    }
     setShowEventModal(false);
     setView("month");
     showNotif("削除しました");
