@@ -166,6 +166,16 @@ const defaultEvents = [
 
 function getDaysInMonth(y, m) { return new Date(y, m + 1, 0).getDate(); }
 function getFirstDay(y, m) { return new Date(y, m, 1).getDay(); }
+// タイムゾーンずれを防ぐローカル日付パーサー
+function parseLocalDate(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+function toLocalDateStr(date) {
+  return date.getFullYear() + "-" +
+    String(date.getMonth() + 1).padStart(2, "0") + "-" +
+    String(date.getDate()).padStart(2, "0");
+}
 
 function MemberEditForm({ memberForm, setMemberForm, isNewMember, onSave, onDelete, onBack, themeGrad, textSec }) {
   return (
@@ -584,16 +594,16 @@ export default function FamilyCalendar() {
       newEvents = events.map(e => e.id === editingEvent.id ? { ...form, id: e.id } : e);
     } else if (form.repeat !== "none" && form.repeatUntil && form.repeatUntil >= form.date) {
       const generated = [];
-      const until = new Date(form.repeatUntil + "T00:00:00");
-      let cur = new Date((form.repeatFrom && form.repeatFrom >= form.date ? form.repeatFrom : form.date) + "T00:00:00");
+      const until = parseLocalDate(form.repeatUntil);
+      let cur = parseLocalDate(form.repeatFrom && form.repeatFrom >= form.date ? form.repeatFrom : form.date);
       const groupId = "g" + Date.now();
       while (cur <= until) {
         let match = false;
         if (form.repeat === "daily") match = true;
         else if (form.repeat === "weekly") match = form.repeatDays.includes(cur.getDay());
-        else if (form.repeat === "monthly") match = cur.getDate() === new Date(form.date + "T00:00:00").getDate();
+        else if (form.repeat === "monthly") match = cur.getDate() === parseLocalDate(form.date).getDate();
         if (match) {
-          const ds = cur.toISOString().slice(0,10);
+          const ds = toLocalDateStr(cur);
           generated.push({ ...form, date:ds, endDate:"", repeat:"none", id:genId(), groupId });
         }
         cur.setDate(cur.getDate()+1);
@@ -602,10 +612,10 @@ export default function FamilyCalendar() {
     } else if (form.endDate && form.endDate >= form.date) {
       const generated = [];
       const groupId = "g" + Date.now();
-      let cur = new Date(form.date + "T00:00:00");
-      const end = new Date(form.endDate + "T00:00:00");
+      let cur = parseLocalDate(form.date);
+      const end = parseLocalDate(form.endDate);
       while (cur <= end) {
-        const ds = cur.toISOString().slice(0,10);
+        const ds = toLocalDateStr(cur);
         generated.push({ ...form, date:ds, endDate:"", id:genId(), groupId });
         cur.setDate(cur.getDate()+1);
       }
