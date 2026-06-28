@@ -247,6 +247,21 @@ function MemberEditForm({ memberForm, setMemberForm, isNewMember, onSave, onDele
   );
 }
 
+// イベントが指定日に該当するか判定（単日・期間・繰り返し対応）
+function eventMatchesDate(e, ds) {
+  if (e.endDate && e.endDate > e.date) {
+    return ds >= e.date && ds <= e.endDate;
+  }
+  if (e.repeat && e.repeat !== "none" && e.repeatUntil) {
+    const start = e.repeatFrom && e.repeatFrom >= e.date ? e.repeatFrom : e.date;
+    if (ds < start || ds > e.repeatUntil) return false;
+    if (e.repeat === "daily") return true;
+    if (e.repeat === "weekly") return (e.repeatDays||[]).includes(new Date(ds+"T00:00:00").getDay());
+    if (e.repeat === "monthly") return new Date(ds+"T00:00:00").getDate() === new Date(e.date+"T00:00:00").getDate();
+  }
+  return e.date === ds;
+}
+
 function MonthView({
   firstDay, daysInMonth, dateStr, todayStr, selectedDate, setSelectedDate,
   getEventsForDate, setView, dragX, setDragX, transitioning, setTransitioning,
@@ -672,23 +687,6 @@ export default function FamilyCalendar() {
   const prevMonth = () => { if (month===0){setYear(y=>y-1);setMonth(11);}else setMonth(m=>m-1); };
   const nextMonth = () => { if (month===11){setYear(y=>y+1);setMonth(0);}else setMonth(m=>m+1); };
   const dateStr = (d) => `${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
-  // イベントが指定日に該当するか判定（単日・期間・繰り返し対応）
-  const eventMatchesDate = (e, ds) => {
-    if (e.endDate && e.endDate > e.date) {
-      // 期間イベント
-      return ds >= e.date && ds <= e.endDate;
-    }
-    if (e.repeat && e.repeat !== "none" && e.repeatUntil) {
-      // 繰り返しイベント
-      const start = e.repeatFrom && e.repeatFrom >= e.date ? e.repeatFrom : e.date;
-      if (ds < start || ds > e.repeatUntil) return false;
-      if (e.repeat === "daily") return true;
-      if (e.repeat === "weekly") return (e.repeatDays||[]).includes(new Date(ds+"T00:00:00").getDay());
-      if (e.repeat === "monthly") return new Date(ds+"T00:00:00").getDate() === new Date(e.date+"T00:00:00").getDate();
-    }
-    return e.date === ds;
-  };
-
   const getEventsForDate = (ds) =>
     events.filter(e => eventMatchesDate(e, ds) && (filterMembers.length===0 || (e.members||[]).some(m => filterMembers.includes(m))));
 
