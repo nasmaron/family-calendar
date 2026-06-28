@@ -323,7 +323,7 @@ function MonthView({
           return (
             <div key={ds} onClick={handleTap}
               style={{ borderRight:`1px solid ${border}`, borderBottom:`1px solid ${border}`,
-                padding:"2px", cursor:"pointer", overflow:"hidden", position:"relative",
+                padding:"2px", cursor:"pointer", overflow:"visible", position:"relative",
                 background: selectedDate===ds ? themeColor+"33" : holiday ? "#FF6B9D11" : bg }}>
               <div style={{ width:20, height:20, borderRadius:"50%",
                 display:"flex", alignItems:"center", justifyContent:"center",
@@ -338,28 +338,30 @@ function MonthView({
                 }}>{holiday}</div>
               )}
               {dayEvents.slice(0,3).map(ev => {
-                // グループイベントの連続デザイン判定
-                const isGrouped = !!ev.groupId;
-                const prevDs = (() => { const d = parseLocalDate(ds); d.setDate(d.getDate()-1); return toLocalDateStr(d); })();
-                const nextDs = (() => { const d = parseLocalDate(ds); d.setDate(d.getDate()+1); return toLocalDateStr(d); })();
-                const hasPrev = isGrouped && events.some(e => e.groupId === ev.groupId && e.date === prevDs);
-                const hasNext = isGrouped && events.some(e => e.groupId === ev.groupId && e.date === nextDs);
-                const borderRadius = hasPrev && hasNext ? "0" : hasPrev ? "0 4px 4px 0" : hasNext ? "4px 0 0 4px" : "4px";
-                const marginLeft = hasPrev ? "-3px" : "0";
-                const marginRight = hasNext ? "-3px" : "0";
+                const prevDs = toLocalDateStr((() => { const d = parseLocalDate(ds); d.setDate(d.getDate()-1); return d; })());
+                const nextDs = toLocalDateStr((() => { const d = parseLocalDate(ds); d.setDate(d.getDate()+1); return d; })());
+                const hasPrev = eventMatchesDate(ev, prevDs);
+                const colIdx = (adjustedFirstDay + (parseInt(ds.slice(8))-1)) % 7;
+                const isLastCol = colIdx === 6;
+                const hasNext = !isLastCol && eventMatchesDate(ev, nextDs);
+                const borderRadius = hasPrev && hasNext ? "0" : hasPrev ? "0 3px 3px 0" : hasNext ? "3px 0 0 3px" : "3px";
                 return (
                   <div key={ev.id}
-                    style={{ background:ev.color, borderRadius, padding:"1px 3px", marginBottom:1,
-                      marginLeft, marginRight,
+                    style={{
+                      background: ev.color,
+                      borderRadius,
+                      padding:"1px 3px", marginBottom:1,
+                      marginLeft: hasPrev ? "-2px" : "0",
+                      marginRight: hasNext ? "-2px" : "0",
                       fontSize:badgeFontSize+"px", color:"#fff", fontWeight:"600",
                       whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
-                      width: hasPrev||hasNext ? `calc(100% + ${(hasPrev?3:0)+(hasNext?3:0)}px)` : "100%",
+                      width: hasPrev||hasNext ? `calc(100% + ${(hasPrev?2:0)+(hasNext?2:0)}px)` : "100%",
                       boxSizing:"border-box", pointerEvents:"none",
-                      opacity: hasPrev ? 0.85 : 1,
+                      position:"relative", zIndex: hasNext ? 2 : 1,
                     }}>
                     {!hasPrev && showBadgeEmoji ? <span style={{fontSize:badgeEmojiSize+"px"}}>{ev.emoji}</span> : ""}
                     {!hasPrev && showBadgeEmoji ? " " : ""}
-                    {!hasPrev ? ev.title : ""}
+                    {!hasPrev ? ev.title : "\u00A0"}
                   </div>
                 );
               })}
@@ -601,84 +603,24 @@ export default function FamilyCalendar() {
   };
   const openEdit = (ev) => {
     setEditingEvent(ev);
-    setForm({ startTime:"", endTime:"", endDate:"", repeat:"none", repeatDays:[], repeatFrom:"", repeatUntil:"", ...ev });
+    setForm({
+      startTime:"", endTime:"", endDate:"", repeat:"none",
+      repeatDays:[], repeatFrom:"", repeatUntil:"",
+      ...ev
+    });
     setShowEventModal(true);
   };
   const saveForm = async () => {
     if (!form.title.trim() || !form.date) return;
     let newEvents;
-    let counter = 0;
-    const genId = () => "e" + Date.now() + "_" + (counter++);
+    const newId = "e" + Date.now();
 
     if (editingEvent) {
-      // 編集時に期間や繰り返しが指定されていたら、元の予定(+同グループ)を削除して再生成
-      const hasRange = form.endDate && form.endDate >= form.date;
-      const hasRepeat = form.repeat !== "none" && form.repeatUntil && form.repeatUntil >= form.date;
-      if (hasRange || hasRepeat) {
-        // 同グループの既存予定を全削除
-        const groupId = editingEvent.groupId || ("g" + Date.now());
-        const baseEvents = editingEvent.groupId
-          ? events.filter(e => e.groupId !== editingEvent.groupId)
-          : events.filter(e => e.id !== editingEvent.id);
-        // 新たに生成
-        const generated = [];
-        if (hasRepeat) {
-          const until = parseLocalDate(form.repeatUntil);
-          let cur = parseLocalDate(form.repeatFrom && form.repeatFrom >= form.date ? form.repeatFrom : form.date);
-          while (cur <= until) {
-            let match = false;
-            if (form.repeat === "daily") match = true;
-            else if (form.repeat === "weekly") match = form.repeatDays.includes(cur.getDay());
-            else if (form.repeat === "monthly") match = cur.getDate() === parseLocalDate(form.date).getDate();
-            if (match) {
-              const ds = toLocalDateStr(cur);
-              generated.push({ ...form, date:ds, endDate:"", repeat:"none", id:genId(), groupId });
-            }
-            cur.setDate(cur.getDate()+1);
-          }
-        } else {
-          let cur = parseLocalDate(form.date);
-          const end = parseLocalDate(form.endDate);
-          while (cur <= end) {
-            const ds = toLocalDateStr(cur);
-            generated.push({ ...form, date:ds, endDate:"", id:genId(), groupId });
-            cur.setDate(cur.getDate()+1);
-          }
-        }
-        newEvents = [...baseEvents, ...generated];
-      } else {
-        newEvents = events.map(e => e.id === editingEvent.id ? { ...form, id: e.id } : e);
-      }
-    } else if (form.repeat !== "none" && form.repeatUntil && form.repeatUntil >= form.date) {
-      const generated = [];
-      const until = parseLocalDate(form.repeatUntil);
-      let cur = parseLocalDate(form.repeatFrom && form.repeatFrom >= form.date ? form.repeatFrom : form.date);
-      const groupId = "g" + Date.now();
-      while (cur <= until) {
-        let match = false;
-        if (form.repeat === "daily") match = true;
-        else if (form.repeat === "weekly") match = form.repeatDays.includes(cur.getDay());
-        else if (form.repeat === "monthly") match = cur.getDate() === parseLocalDate(form.date).getDate();
-        if (match) {
-          const ds = toLocalDateStr(cur);
-          generated.push({ ...form, date:ds, endDate:"", repeat:"none", id:genId(), groupId });
-        }
-        cur.setDate(cur.getDate()+1);
-      }
-      newEvents = [...events, ...generated];
-    } else if (form.endDate && form.endDate >= form.date) {
-      const generated = [];
-      const groupId = "g" + Date.now();
-      let cur = parseLocalDate(form.date);
-      const end = parseLocalDate(form.endDate);
-      while (cur <= end) {
-        const ds = toLocalDateStr(cur);
-        generated.push({ ...form, date:ds, endDate:"", id:genId(), groupId });
-        cur.setDate(cur.getDate()+1);
-      }
-      newEvents = [...events, ...generated];
+      // 編集：単純に1件更新
+      newEvents = events.map(e => e.id === editingEvent.id ? { ...form, id: e.id } : e);
     } else {
-      newEvents = [...events, { ...form, id:genId() }];
+      // 新規：1件として保存（期間・繰り返し情報をそのまま保持）
+      newEvents = [...events, { ...form, id: newId }];
     }
     setEvents(newEvents);
     await saveEvents(newEvents);
@@ -688,21 +630,9 @@ export default function FamilyCalendar() {
   };
 
   const deleteEvent = async (id) => {
-    // groupIdがあれば同グループをまとめて削除するか確認
-    const target = events.find(e => e.id === id);
-    const groupEvents = target?.groupId ? events.filter(e => e.groupId === target.groupId) : [];
-    if (groupEvents.length > 1) {
-      const deleteAll = window.confirm(`この予定は${groupEvents.length}件の連続/繰り返し予定です。\n全て削除しますか？\n（キャンセルでこの1件だけ削除）`);
-      const newEvents = deleteAll
-        ? events.filter(e => e.groupId !== target.groupId)
-        : events.filter(e => e.id !== id);
-      setEvents(newEvents);
-      await saveEvents(newEvents);
-    } else {
-      const newEvents = events.filter(e => e.id !== id);
-      setEvents(newEvents);
-      await saveEvents(newEvents);
-    }
+    const newEvents = events.filter(e => e.id !== id);
+    setEvents(newEvents);
+    await saveEvents(newEvents);
     setShowEventModal(false);
     setView("month");
     showNotif("削除しました");
@@ -742,8 +672,25 @@ export default function FamilyCalendar() {
   const prevMonth = () => { if (month===0){setYear(y=>y-1);setMonth(11);}else setMonth(m=>m-1); };
   const nextMonth = () => { if (month===11){setYear(y=>y+1);setMonth(0);}else setMonth(m=>m+1); };
   const dateStr = (d) => `${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+  // イベントが指定日に該当するか判定（単日・期間・繰り返し対応）
+  const eventMatchesDate = (e, ds) => {
+    if (e.endDate && e.endDate > e.date) {
+      // 期間イベント
+      return ds >= e.date && ds <= e.endDate;
+    }
+    if (e.repeat && e.repeat !== "none" && e.repeatUntil) {
+      // 繰り返しイベント
+      const start = e.repeatFrom && e.repeatFrom >= e.date ? e.repeatFrom : e.date;
+      if (ds < start || ds > e.repeatUntil) return false;
+      if (e.repeat === "daily") return true;
+      if (e.repeat === "weekly") return (e.repeatDays||[]).includes(new Date(ds+"T00:00:00").getDay());
+      if (e.repeat === "monthly") return new Date(ds+"T00:00:00").getDate() === new Date(e.date+"T00:00:00").getDate();
+    }
+    return e.date === ds;
+  };
+
   const getEventsForDate = (ds) =>
-    events.filter(e => e.date===ds && (filterMembers.length===0 || e.members.some(m => filterMembers.includes(m))));
+    events.filter(e => eventMatchesDate(e, ds) && (filterMembers.length===0 || (e.members||[]).some(m => filterMembers.includes(m))));
 
   const daysInMonth = getDaysInMonth(year, month);
   const firstDay = getFirstDay(year, month);
