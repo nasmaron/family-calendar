@@ -338,7 +338,7 @@ function MonthView({
           return (
             <div key={ds} onClick={handleTap}
               style={{ borderRight:`1px solid ${border}`, borderBottom:`1px solid ${border}`,
-                padding:"2px", cursor:"pointer", overflow:"visible", position:"relative",
+                padding:"2px", cursor:"pointer", overflow:"hidden", position:"relative",
                 background: selectedDate===ds ? themeColor+"33" : holiday ? "#FF6B9D11" : bg }}>
               <div style={{ width:20, height:20, borderRadius:"50%",
                 display:"flex", alignItems:"center", justifyContent:"center",
@@ -366,13 +366,9 @@ function MonthView({
                       background: ev.color,
                       borderRadius,
                       padding:"1px 3px", marginBottom:1,
-                      marginLeft: hasPrev ? "-2px" : "0",
-                      marginRight: hasNext ? "-2px" : "0",
                       fontSize:badgeFontSize+"px", color:"#fff", fontWeight:"600",
                       whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
-                      width: hasPrev||hasNext ? `calc(100% + ${(hasPrev?2:0)+(hasNext?2:0)}px)` : "100%",
-                      boxSizing:"border-box", pointerEvents:"none",
-                      position:"relative", zIndex: hasNext ? 2 : 1,
+                      width:"100%", boxSizing:"border-box", pointerEvents:"none",
                     }}>
                     {!hasPrev && showBadgeEmoji ? <span style={{fontSize:badgeEmojiSize+"px"}}>{ev.emoji}</span> : ""}
                     {!hasPrev && showBadgeEmoji ? " " : ""}
