@@ -416,7 +416,7 @@ function MonthView({
                 )}
               </div>
               {slots.map((ev, slotIdx) => {
-                if (!ev) return <div key={"empty"+slotIdx} style={{ height: badgeFontSize+4+"px", marginBottom:1 }} />;
+                if (!ev) return <div key={"empty"+slotIdx} style={{ height:"14px", marginBottom:1 }} />;
                 const prevDs = toLocalDateStr((() => { const d2 = parseLocalDate(ds); d2.setDate(d2.getDate()-1); return d2; })());
                 const nextDs = toLocalDateStr((() => { const d2 = parseLocalDate(ds); d2.setDate(d2.getDate()+1); return d2; })());
                 const hasPrev = colIdx > 0 && eventMatchesDate(ev, prevDs);
