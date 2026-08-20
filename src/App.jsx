@@ -302,6 +302,49 @@ function MonthView({
     touchStart.current = null;
   };
 
+  // 週ごとのスロット管理を計算
+  const weekSlots = [];
+  for (let w = 0; w < weeks; w++) {
+    const slotMap = {}; // eventId -> slotIndex
+    const slotUsed = []; // slotIndex -> [ds, ...]
+    const weekDays = [];
+    for (let col = 0; col < 7; col++) {
+      const cellIdx = w * 7 + col;
+      const d = cells[cellIdx];
+      weekDays.push(d ? dateStr(d) : null);
+    }
+    // 週内の全予定を収集してスロット割り当て
+    const weekEvents = [];
+    weekDays.forEach(ds => {
+      if (!ds) return;
+      getEventsForDate(ds).forEach(ev => {
+        if (!weekEvents.find(e => e.id === ev.id)) weekEvents.push(ev);
+      });
+    });
+    // 期間・複数日予定を優先してスロット割り当て
+    const sorted = [...weekEvents].sort((a, b) => {
+      const aMulti = (a.endDate && a.endDate > a.date) || (a.repeat && a.repeat !== "none");
+      const bMulti = (b.endDate && b.endDate > b.date) || (b.repeat && b.repeat !== "none");
+      return (bMulti ? 1 : 0) - (aMulti ? 1 : 0);
+    });
+    sorted.forEach(ev => {
+      // このイベントが使う週内の列を調べる
+      const usedCols = weekDays.map((ds, col) => ds && eventMatchesDate(ev, ds) ? col : -1).filter(c => c >= 0);
+      if (usedCols.length === 0) return;
+      // 空いているスロットを探す
+      let slot = 0;
+      while (true) {
+        const conflict = usedCols.some(col => slotUsed[slot] && slotUsed[slot][col]);
+        if (!conflict) break;
+        slot++;
+      }
+      slotMap[ev.id] = slot;
+      if (!slotUsed[slot]) slotUsed[slot] = {};
+      usedCols.forEach(col => { slotUsed[slot][col] = true; });
+    });
+    weekSlots.push({ weekDays, slotMap, weekEvents, slotUsed });
+  }
+
   return (
     <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", touchAction:"none", width:"100%", boxSizing:"border-box" }}
       onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
@@ -318,11 +361,13 @@ function MonthView({
         transition: transitioning ? "transform 0.2s ease" : "none",
         width:"100%", overflow:"hidden" }}>
         {cells.map((d, idx) => {
+          const weekIdx = Math.floor(idx / 7);
+          const colIdx = idx % 7;
           if (!d) return <div key={"e"+idx} style={{ borderRight:`1px solid ${border}`, borderBottom:`1px solid ${border}`, background:bgSub }} />;
           const ds = dateStr(d);
           const dayEvents = getEventsForDate(ds);
           const isToday = ds===todayStr;
-          const rawDow = new Date(ds).getDay(); // 0=日,6=土
+          const rawDow = new Date(ds).getDay();
           const holiday = getHoliday(ds);
           const handleTap = () => {
             const now = Date.now();
@@ -335,36 +380,53 @@ function MonthView({
             }
             lastTap.current = { ds, time: now };
           };
+
+          // スロットベースのバッジ配置
+          const { slotMap, weekEvents, slotUsed } = weekSlots[weekIdx] || { slotMap:{}, weekEvents:[], slotUsed:[] };
+          const maxSlot = slotUsed ? slotUsed.length : 0;
+          const MAX_SLOTS = 3;
+          const slots = Array(Math.min(maxSlot, MAX_SLOTS)).fill(null);
+          // このセルに表示するイベントをスロット順に並べる
+          dayEvents.forEach(ev => {
+            const slot = slotMap[ev.id];
+            if (slot !== undefined && slot < MAX_SLOTS) slots[slot] = ev;
+          });
+          const hiddenCount = dayEvents.filter(ev => {
+            const slot = slotMap[ev.id];
+            return slot === undefined || slot >= MAX_SLOTS;
+          }).length;
+
           return (
             <div key={ds} onClick={handleTap}
               style={{ borderRight:`1px solid ${border}`, borderBottom:`1px solid ${border}`,
                 padding:"2px", cursor:"pointer", overflow:"hidden", position:"relative",
                 background: selectedDate===ds ? themeColor+"33" : holiday ? "#FF6B9D11" : bg }}>
-              <div style={{ width:20, height:20, borderRadius:"50%",
-                display:"flex", alignItems:"center", justifyContent:"center",
-                background: isToday?themeColor:"transparent",
-                color: isToday?"#fff": holiday?"#FF6B9D": rawDow===0?"#FF6B9D": rawDow===6?"#4D96FF":textPri,
-                fontWeight: isToday?"700":"400", fontSize:"11px", marginBottom:1 }}>{d}</div>
-              {holiday && (
-                <div style={{
-                  fontSize:"7px", color:"#FF6B9D", fontWeight:"600",
-                  lineHeight:"1.2", paddingLeft:1, marginBottom:1,
-                  overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
-                }}>{holiday}</div>
-              )}
-              {dayEvents.slice(0,3).map(ev => {
-                const prevDs = toLocalDateStr((() => { const d = parseLocalDate(ds); d.setDate(d.getDate()-1); return d; })());
-                const nextDs = toLocalDateStr((() => { const d = parseLocalDate(ds); d.setDate(d.getDate()+1); return d; })());
-                const hasPrev = eventMatchesDate(ev, prevDs);
-                const colIdx = (adjustedFirstDay + (parseInt(ds.slice(8))-1)) % 7;
+              <div style={{ display:"flex", alignItems:"center", marginBottom:1 }}>
+                <div style={{ width:20, height:20, borderRadius:"50%", flexShrink:0,
+                  display:"flex", alignItems:"center", justifyContent:"center",
+                  background: isToday?themeColor:"transparent",
+                  color: isToday?"#fff": holiday?"#FF6B9D": rawDow===0?"#FF6B9D": rawDow===6?"#4D96FF":textPri,
+                  fontWeight: isToday?"700":"400", fontSize:"11px" }}>{d}</div>
+                {holiday && (
+                  <div style={{
+                    fontSize:"7px", color:"#FF6B9D", fontWeight:"600",
+                    overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+                    marginLeft:2, flex:1,
+                  }}>{holiday}</div>
+                )}
+              </div>
+              {slots.map((ev, slotIdx) => {
+                if (!ev) return <div key={"empty"+slotIdx} style={{ height: badgeFontSize+4+"px", marginBottom:1 }} />;
+                const prevDs = toLocalDateStr((() => { const d2 = parseLocalDate(ds); d2.setDate(d2.getDate()-1); return d2; })());
+                const nextDs = toLocalDateStr((() => { const d2 = parseLocalDate(ds); d2.setDate(d2.getDate()+1); return d2; })());
+                const hasPrev = colIdx > 0 && eventMatchesDate(ev, prevDs);
                 const isLastCol = colIdx === 6;
                 const hasNext = !isLastCol && eventMatchesDate(ev, nextDs);
                 const borderRadius = hasPrev && hasNext ? "0" : hasPrev ? "0 3px 3px 0" : hasNext ? "3px 0 0 3px" : "3px";
                 return (
                   <div key={ev.id}
                     style={{
-                      background: ev.color,
-                      borderRadius,
+                      background: ev.color, borderRadius,
                       padding:"1px 3px", marginBottom:1,
                       fontSize:badgeFontSize+"px", color:"#fff", fontWeight:"600",
                       whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
@@ -376,7 +438,7 @@ function MonthView({
                   </div>
                 );
               })}
-              {dayEvents.length > 3 && <div style={{ fontSize:"8px", color:"#9B59B6", fontWeight:"700", paddingLeft:2 }}>+{dayEvents.length-3}</div>}
+              {hiddenCount > 0 && <div style={{ fontSize:"8px", color:textPri, fontWeight:"700", paddingLeft:2 }}>+{hiddenCount}</div>}
             </div>
           );
         })}
