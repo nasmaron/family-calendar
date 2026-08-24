@@ -399,14 +399,18 @@ function MonthView({
                 return (
                   <div key={ds} onClick={handleTap}
                     style={{ borderRight:`1px solid ${border}`, cursor:"pointer",
-                      background: selectedDate===ds ? themeColor+"33" : holiday ? "#FF6B9D11" : bg,
+                      background: selectedDate===ds ? themeColor+"33" : isToday ? (darkMode ? themeColor+"77" : themeColor+"44") : holiday ? "#FF6B9D11" : bg,
                       paddingTop:2, paddingLeft:2 }}>
                     <div style={{ display:"flex", alignItems:"center" }}>
-                      <div style={{ width:20, height:20, borderRadius:"50%",
+                      <div style={{
+                        width: isToday?26:20, height: isToday?26:20, borderRadius:"50%",
                         display:"flex", alignItems:"center", justifyContent:"center",
                         background: isToday?themeColor:"transparent",
+                        boxShadow: isToday?`0 2px 8px ${themeColor}88`:"none",
                         color: isToday?"#fff": holiday?"#FF6B9D": rawDow===0?"#FF6B9D": rawDow===6?"#4D96FF":textPri,
-                        fontWeight: isToday?"700":"400", fontSize:"11px" }}>{d}</div>
+                        fontWeight: isToday?"900":"400", fontSize: isToday?"13px":"11px",
+                        flexShrink:0,
+                      }}>{d}</div>
                       {holiday && <div style={{ fontSize:"7px", color:"#FF6B9D", fontWeight:"600", marginLeft:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{holiday}</div>}
                     </div>
                   </div>
@@ -467,8 +471,7 @@ function MonthView({
                         height: BADGE_H+"px",
                         background: ev.color,
                         borderRadius,
-                        borderTop: (!isStart || !isEnd) ? (darkMode?"2px solid #fff":"2px solid #000") : "none",
-                        borderBottom: (!isStart || !isEnd) ? (darkMode?"2px solid #fff":"2px solid #000") : "none",
+
                         display:"flex", alignItems:"center",
                         padding:"0 3px", boxSizing:"border-box",
                         fontSize:badgeFontSize+"px", color:"#fff", fontWeight:"600",
