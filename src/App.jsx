@@ -267,19 +267,17 @@ function MonthView({
   getEventsForDate, setView, dragX, setDragX, transitioning, setTransitioning,
   prevMonth, nextMonth, border, bgSub, bg, themeColor, textPri, badgeFontSize,
   DAYS_JP, showBadgeEmoji, setShowEventDetail, weekStartsMonday, badgeEmojiSize,
-  events
+  events, darkMode
 }) {
   const lastTap = useRef({ ds: null, time: 0 });
   const touchStart = useRef(null);
-  // 月曜始まりの場合、firstDayを調整
+
   const adjustedFirstDay = weekStartsMonday ? (firstDay === 0 ? 6 : firstDay - 1) : firstDay;
   const cells = [];
   for (let i = 0; i < adjustedFirstDay; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
   const weeks = Math.ceil((adjustedFirstDay + daysInMonth) / 7);
-  const orderedDays = weekStartsMonday
-    ? ["月","火","水","木","金","土","日"]
-    : DAYS_JP;
+  const orderedDays = weekStartsMonday ? ["月","火","水","木","金","土","日"] : DAYS_JP;
   const sunIdx = weekStartsMonday ? 6 : 0;
   const satIdx = weekStartsMonday ? 5 : 6;
 
@@ -302,143 +300,213 @@ function MonthView({
     touchStart.current = null;
   };
 
-  // 週ごとのスロット管理を計算
-  const weekSlots = [];
+  // 全イベント収集（重複除去）
+  const allEvents = [];
+  for (let d = 1; d <= daysInMonth; d++) {
+    const ds = dateStr(d);
+    getEventsForDate(ds).forEach(ev => {
+      if (!allEvents.find(e => e.id === ev.id)) allEvents.push(ev);
+    });
+  }
+
+  // 週ごとのスロット計算
+  const weekSlotMaps = [];
   for (let w = 0; w < weeks; w++) {
-    const slotMap = {}; // eventId -> slotIndex
-    const slotUsed = []; // slotIndex -> [ds, ...]
-    const weekDays = [];
+    const slotMap = {}; // eventId -> slot
+    const slotCols = []; // slot -> Set of cols used
+    const weekEvs = [];
     for (let col = 0; col < 7; col++) {
       const cellIdx = w * 7 + col;
       const d = cells[cellIdx];
-      weekDays.push(d ? dateStr(d) : null);
-    }
-    // 週内の全予定を収集してスロット割り当て
-    const weekEvents = [];
-    weekDays.forEach(ds => {
-      if (!ds) return;
+      if (!d) continue;
+      const ds = dateStr(d);
       getEventsForDate(ds).forEach(ev => {
-        if (!weekEvents.find(e => e.id === ev.id)) weekEvents.push(ev);
+        if (!weekEvs.find(e => e.id === ev.id)) weekEvs.push(ev);
       });
+    }
+    // 期間予定優先でソート
+    weekEvs.sort((a, b) => {
+      const aM = (a.endDate && a.endDate > a.date) || (a.repeat && a.repeat !== "none");
+      const bM = (b.endDate && b.endDate > b.date) || (b.repeat && b.repeat !== "none");
+      return (bM ? 1 : 0) - (aM ? 1 : 0);
     });
-    // 期間・複数日予定を優先してスロット割り当て
-    const sorted = [...weekEvents].sort((a, b) => {
-      const aMulti = (a.endDate && a.endDate > a.date) || (a.repeat && a.repeat !== "none");
-      const bMulti = (b.endDate && b.endDate > b.date) || (b.repeat && b.repeat !== "none");
-      return (bMulti ? 1 : 0) - (aMulti ? 1 : 0);
-    });
-    sorted.forEach(ev => {
-      // このイベントが使う週内の列を調べる
-      const usedCols = weekDays.map((ds, col) => ds && eventMatchesDate(ev, ds) ? col : -1).filter(c => c >= 0);
+    weekEvs.forEach(ev => {
+      const usedCols = [];
+      for (let col = 0; col < 7; col++) {
+        const cellIdx = w * 7 + col;
+        const d = cells[cellIdx];
+        if (d && eventMatchesDate(ev, dateStr(d))) usedCols.push(col);
+      }
       if (usedCols.length === 0) return;
-      // 空いているスロットを探す
       let slot = 0;
       while (true) {
-        const conflict = usedCols.some(col => slotUsed[slot] && slotUsed[slot][col]);
-        if (!conflict) break;
+        if (!slotCols[slot]) { slotCols[slot] = new Set(); }
+        if (!usedCols.some(c => slotCols[slot].has(c))) break;
         slot++;
       }
       slotMap[ev.id] = slot;
-      if (!slotUsed[slot]) slotUsed[slot] = {};
-      usedCols.forEach(col => { slotUsed[slot][col] = true; });
+      usedCols.forEach(c => slotCols[slot].add(c));
     });
-    weekSlots.push({ weekDays, slotMap, weekEvents, slotUsed });
+    weekSlotMaps.push({ slotMap, slotCols });
   }
+
+  const MAX_SLOTS = 3;
+  const CELL_DATE_H = 22; // 日付行の高さ
+  const BADGE_H = badgeFontSize + 4;
+  const BADGE_GAP = 1;
+  const WEEK_H = CELL_DATE_H + (BADGE_H + BADGE_GAP) * MAX_SLOTS + 4;
 
   return (
     <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", touchAction:"none", width:"100%", boxSizing:"border-box" }}
       onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
     >
+      {/* 曜日ヘッダー */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", flexShrink:0, borderBottom:`1px solid ${border}` }}>
         {orderedDays.map((d,i) => (
           <div key={d} style={{ background:bg, textAlign:"center", lineHeight:"24px", fontSize:"11px", fontWeight:"700",
             color: i===sunIdx?"#FF6B9D": i===satIdx?"#4D96FF":"#9A8FAA" }}>{d}</div>
         ))}
       </div>
-      <div style={{ flex:1, display:"grid", gridTemplateColumns:"repeat(7,1fr)",
-        gridTemplateRows:`repeat(${weeks}, 1fr)`,
+
+      {/* カレンダー本体 */}
+      <div style={{
+        flex:1, overflow:"hidden",
         transform:`translateX(${dragX}px)`,
         transition: transitioning ? "transform 0.2s ease" : "none",
-        width:"100%", overflow:"hidden" }}>
-        {cells.map((d, idx) => {
-          const weekIdx = Math.floor(idx / 7);
-          const colIdx = idx % 7;
-          if (!d) return <div key={"e"+idx} style={{ borderRight:`1px solid ${border}`, borderBottom:`1px solid ${border}`, background:bgSub }} />;
-          const ds = dateStr(d);
-          const dayEvents = getEventsForDate(ds);
-          const isToday = ds===todayStr;
-          const rawDow = new Date(ds).getDay();
-          const holiday = getHoliday(ds);
-          const handleTap = () => {
-            const now = Date.now();
-            if (selectedDate === ds) {
-              setView("day");
-            } else if (lastTap.current.ds === ds && now - lastTap.current.time < 300) {
-              setSelectedDate(ds); setView("day");
-            } else {
-              setSelectedDate(ds);
-            }
-            lastTap.current = { ds, time: now };
-          };
-
-          // スロットベースのバッジ配置
-          const { slotMap, weekEvents, slotUsed } = weekSlots[weekIdx] || { slotMap:{}, weekEvents:[], slotUsed:[] };
-          const maxSlot = slotUsed ? slotUsed.length : 0;
-          const MAX_SLOTS = 3;
-          const slots = Array(Math.min(maxSlot, MAX_SLOTS)).fill(null);
-          // このセルに表示するイベントをスロット順に並べる
-          dayEvents.forEach(ev => {
-            const slot = slotMap[ev.id];
-            if (slot !== undefined && slot < MAX_SLOTS) slots[slot] = ev;
-          });
-          const hiddenCount = dayEvents.filter(ev => {
-            const slot = slotMap[ev.id];
-            return slot === undefined || slot >= MAX_SLOTS;
-          }).length;
+        display:"flex", flexDirection:"column",
+      }}>
+        {Array.from({length:weeks}, (_,w) => {
+          const { slotMap, slotCols } = weekSlotMaps[w] || { slotMap:{}, slotCols:[] };
 
           return (
-            <div key={ds} onClick={handleTap}
-              style={{ borderRight:`1px solid ${border}`, borderBottom:`1px solid ${border}`,
-                padding:"2px", cursor:"pointer", overflow:"hidden", position:"relative",
-                background: selectedDate===ds ? themeColor+"33" : holiday ? "#FF6B9D11" : bg }}>
-              <div style={{ display:"flex", alignItems:"center", marginBottom:1 }}>
-                <div style={{ width:20, height:20, borderRadius:"50%", flexShrink:0,
-                  display:"flex", alignItems:"center", justifyContent:"center",
-                  background: isToday?themeColor:"transparent",
-                  color: isToday?"#fff": holiday?"#FF6B9D": rawDow===0?"#FF6B9D": rawDow===6?"#4D96FF":textPri,
-                  fontWeight: isToday?"700":"400", fontSize:"11px" }}>{d}</div>
-                {holiday && (
-                  <div style={{
-                    fontSize:"7px", color:"#FF6B9D", fontWeight:"600",
-                    overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
-                    marginLeft:2, flex:1,
-                  }}>{holiday}</div>
-                )}
-              </div>
-              {slots.map((ev, slotIdx) => {
-                if (!ev) return <div key={"empty"+slotIdx} style={{ height:"14px", marginBottom:1 }} />;
-                const prevDs = toLocalDateStr((() => { const d2 = parseLocalDate(ds); d2.setDate(d2.getDate()-1); return d2; })());
-                const nextDs = toLocalDateStr((() => { const d2 = parseLocalDate(ds); d2.setDate(d2.getDate()+1); return d2; })());
-                const hasPrev = colIdx > 0 && eventMatchesDate(ev, prevDs);
-                const isLastCol = colIdx === 6;
-                const hasNext = !isLastCol && eventMatchesDate(ev, nextDs);
-                const borderRadius = hasPrev && hasNext ? "0" : hasPrev ? "0 3px 3px 0" : hasNext ? "3px 0 0 3px" : "3px";
+            <div key={w} style={{ flex:1, display:"grid", gridTemplateColumns:"repeat(7,1fr)", position:"relative", borderBottom:`1px solid ${border}` }}>
+              {/* 日付セル */}
+              {Array.from({length:7}, (_,col) => {
+                const cellIdx = w * 7 + col;
+                const d = cells[cellIdx];
+                if (!d) return <div key={"e"+col} style={{ borderRight:`1px solid ${border}`, background:bgSub }} />;
+                const ds = dateStr(d);
+                const isToday = ds===todayStr;
+                const rawDow = new Date(ds).getDay();
+                const holiday = getHoliday(ds);
+                const handleTap = () => {
+                  const now = Date.now();
+                  if (selectedDate === ds) { setView("day"); }
+                  else if (lastTap.current.ds === ds && now - lastTap.current.time < 300) { setSelectedDate(ds); setView("day"); }
+                  else { setSelectedDate(ds); }
+                  lastTap.current = { ds, time: now };
+                };
                 return (
-                  <div key={ev.id}
-                    style={{
-                      background: ev.color, borderRadius,
-                      padding:"1px 3px", marginBottom:1,
-                      fontSize:badgeFontSize+"px", color:"#fff", fontWeight:"600",
-                      whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
-                      width:"100%", boxSizing:"border-box", pointerEvents:"none",
-                    }}>
-                    {!hasPrev && showBadgeEmoji ? <span style={{fontSize:badgeEmojiSize+"px"}}>{ev.emoji}</span> : ""}
-                    {!hasPrev && showBadgeEmoji ? " " : ""}
-                    {!hasPrev ? ev.title : "\u00A0"}
+                  <div key={ds} onClick={handleTap}
+                    style={{ borderRight:`1px solid ${border}`, cursor:"pointer",
+                      background: selectedDate===ds ? themeColor+"33" : holiday ? "#FF6B9D11" : bg,
+                      paddingTop:2, paddingLeft:2 }}>
+                    <div style={{ display:"flex", alignItems:"center" }}>
+                      <div style={{ width:20, height:20, borderRadius:"50%",
+                        display:"flex", alignItems:"center", justifyContent:"center",
+                        background: isToday?themeColor:"transparent",
+                        color: isToday?"#fff": holiday?"#FF6B9D": rawDow===0?"#FF6B9D": rawDow===6?"#4D96FF":textPri,
+                        fontWeight: isToday?"700":"400", fontSize:"11px" }}>{d}</div>
+                      {holiday && <div style={{ fontSize:"7px", color:"#FF6B9D", fontWeight:"600", marginLeft:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{holiday}</div>}
+                    </div>
                   </div>
                 );
               })}
-              {hiddenCount > 0 && <div style={{ fontSize:"8px", color:textPri, fontWeight:"700", paddingLeft:2 }}>+{hiddenCount}</div>}
+
+              {/* 予定バッジ（absolute配置） */}
+              {(() => {
+                const badges = [];
+                const rendered = new Set();
+                for (let col = 0; col < 7; col++) {
+                  const cellIdx = w * 7 + col;
+                  const d = cells[cellIdx];
+                  if (!d) continue;
+                  const ds = dateStr(d);
+                  getEventsForDate(ds).forEach(ev => {
+                    if (rendered.has(ev.id)) return;
+                    const slot = slotMap[ev.id];
+                    if (slot === undefined || slot >= MAX_SLOTS) return;
+
+                    // この週でのスパン計算
+                    let startCol = col;
+                    let endCol = col;
+                    for (let c2 = col+1; c2 < 7; c2++) {
+                      const d2 = cells[w*7+c2];
+                      if (d2 && eventMatchesDate(ev, dateStr(d2))) endCol = c2;
+                      else break;
+                    }
+
+                    // 前週から続いているか
+                    let prevWeekContinues = false;
+                    if (w > 0 && col === 0) {
+                      const prevD = cells[(w-1)*7+6];
+                      if (prevD && eventMatchesDate(ev, dateStr(prevD))) prevWeekContinues = true;
+                    }
+                    // 次週に続くか
+                    let nextWeekContinues = false;
+                    if (endCol === 6) {
+                      const nextD = cells[(w+1)*7];
+                      if (nextD && eventMatchesDate(ev, dateStr(nextD))) nextWeekContinues = true;
+                    }
+
+                    const top = CELL_DATE_H + slot * (BADGE_H + BADGE_GAP);
+                    const leftPct = (startCol / 7) * 100;
+                    const widthPct = ((endCol - startCol + 1) / 7) * 100;
+
+                    const isStart = !prevWeekContinues;
+                    const isEnd = !nextWeekContinues && endCol < 6 ? true : !nextWeekContinues;
+                    const borderRadius = isStart && isEnd ? "3px" : isStart ? "3px 0 0 3px" : isEnd ? "0 3px 3px 0" : "0";
+
+                    rendered.add(ev.id);
+                    badges.push(
+                      <div key={ev.id} style={{
+                        position:"absolute",
+                        top: top+"px",
+                        left: `calc(${leftPct}% + 1px)`,
+                        width: `calc(${widthPct}% - 2px)`,
+                        height: BADGE_H+"px",
+                        background: ev.color,
+                        borderRadius,
+                        borderTop: (!isStart || !isEnd) ? (darkMode?"2px solid #fff":"2px solid #000") : "none",
+                        borderBottom: (!isStart || !isEnd) ? (darkMode?"2px solid #fff":"2px solid #000") : "none",
+                        display:"flex", alignItems:"center",
+                        padding:"0 3px", boxSizing:"border-box",
+                        fontSize:badgeFontSize+"px", color:"#fff", fontWeight:"600",
+                        whiteSpace:"nowrap", overflow:"hidden", pointerEvents:"none",
+                        zIndex: slot + 1,
+                      }}>
+                        {isStart && showBadgeEmoji && <span style={{fontSize:Math.min(badgeEmojiSize,BADGE_H-2)+"px", flexShrink:0}}>{ev.emoji} </span>}
+                        <span style={{overflow:"hidden", textOverflow:"ellipsis"}}>
+                          {isStart ? ev.title : ""}
+                        </span>
+                      </div>
+                    );
+                  });
+                }
+                // +N表示
+                for (let col = 0; col < 7; col++) {
+                  const cellIdx = w * 7 + col;
+                  const d = cells[cellIdx];
+                  if (!d) continue;
+                  const ds = dateStr(d);
+                  const dayEvs = getEventsForDate(ds);
+                  const hidden = dayEvs.filter(ev => {
+                    const s = slotMap[ev.id];
+                    return s === undefined || s >= MAX_SLOTS;
+                  }).length;
+                  if (hidden > 0) {
+                    const top = CELL_DATE_H + MAX_SLOTS * (BADGE_H + BADGE_GAP);
+                    badges.push(
+                      <div key={"more"+col} style={{
+                        position:"absolute", top:top+"px",
+                        left:`calc(${col/7*100}% + 2px)`,
+                        fontSize:"8px", color:textPri, fontWeight:"700",
+                      }}>+{hidden}</div>
+                    );
+                  }
+                }
+                return badges;
+              })()}
             </div>
           );
         })}
@@ -446,6 +514,7 @@ function MonthView({
     </div>
   );
 }
+
 
 function DayView({
   selectedDate, getEventsForDate, setShowEventDetail, openAdd,
@@ -1250,7 +1319,7 @@ export default function FamilyCalendar() {
           border={border} bgSub={bgSub} bg={bg} themeColor={themeColor} textPri={textPri}
           badgeFontSize={badgeFontSize} badgeEmojiSize={badgeEmojiSize} DAYS_JP={DAYS_JP}
           showBadgeEmoji={showBadgeEmoji} setShowEventDetail={setShowEventDetail}
-          weekStartsMonday={weekStartsMonday} events={events}
+          weekStartsMonday={weekStartsMonday} events={events} darkMode={darkMode}
         />}
         {view==="day" && (
           selectedDate
