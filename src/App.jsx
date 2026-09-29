@@ -22,6 +22,109 @@ async function dbSet(key, value) {
   });
 }
 
+// ===== Supabase Storage（写真・レシート画像の保存） =====
+// 事前に Supabase ダッシュボードで Storage > New bucket から
+// バケット名「family-files」（Public）を作成しておいてください。
+const STORAGE_BUCKET = "family-files";
+
+async function uploadFile(file, folder) {
+  const safeName = `${Date.now()}_${Math.random().toString(36).slice(2,8)}_${(file.name||"photo").replace(/[^a-zA-Z0-9._-]/g, "")}`;
+  const path = `${folder}/${safeName}`;
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${STORAGE_BUCKET}/${path}`, {
+    method: "POST",
+    headers: {
+      "apikey": SUPABASE_KEY,
+      "Authorization": "Bearer " + SUPABASE_KEY,
+      "Content-Type": file.type || "application/octet-stream",
+      "x-upsert": "true",
+    },
+    body: file,
+  });
+  if (!res.ok) throw new Error("画像のアップロードに失敗しました");
+  return `${SUPABASE_URL}/storage/v1/object/public/${STORAGE_BUCKET}/${path}`;
+}
+
+// ===== レシートOCR（Supabase Edge Function経由でClaude APIを呼ぶ） =====
+// APIキーをブラウザに直接置くのは危険なため、Edge Function側で保持します。
+// 事前に supabase/functions/ocr-receipt をデプロイしてください（下記コード参照）。
+async function ocrReceipt(imageUrl) {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/ocr-receipt`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + SUPABASE_KEY },
+    body: JSON.stringify({ imageUrl }),
+  });
+  if (!res.ok) throw new Error("レシートの読み取りに失敗しました");
+  return res.json(); // { amount, date, memo }
+}
+
+// ===== 写真の撮影日を読み取る =====
+// JPEGのEXIF（DateTimeOriginal）を優先し、読めない場合はファイルの更新日時、
+// それも無ければnull（呼び出し側でtodayStrにフォールバック）を返す。
+// 注意：HEIC/HEIF（iPhoneの既定形式）はこの簡易パーサーでは読み取れません（確信度：高）。
+// iPhoneで「互換性優先（JPEGで保存）」設定にしている場合や、写真アプリの共有時に
+// 自動でJPEG変換される場合は読み取れます。
+function readExifDateFromJpeg(arrayBuffer) {
+  try {
+    const view = new DataView(arrayBuffer);
+    if (view.getUint16(0, false) !== 0xFFD8) return null;
+    let offset = 2;
+    while (offset < view.byteLength - 4) {
+      const marker = view.getUint16(offset, false);
+      if (marker === 0xFFE1) {
+        const exifOffset = offset + 4;
+        if (view.getUint32(exifOffset, false) !== 0x45786966) return null; // "Exif"
+        const tiffOffset = exifOffset + 6;
+        const little = view.getUint16(tiffOffset, false) === 0x4949;
+        const firstIFDOffset = view.getUint32(tiffOffset + 4, little);
+        const dirOffset = tiffOffset + firstIFDOffset;
+        if (dirOffset + 2 > view.byteLength) return null;
+        const numEntries = view.getUint16(dirOffset, little);
+        for (let i = 0; i < numEntries; i++) {
+          const entryOffset = dirOffset + 2 + i * 12;
+          if (entryOffset + 12 > view.byteLength) break;
+          const tag = view.getUint16(entryOffset, little);
+          if (tag === 0x9003 || tag === 0x0132) { // DateTimeOriginal または DateTime
+            const valueOffset = view.getUint32(entryOffset + 8, little) + tiffOffset;
+            let str = "";
+            for (let n = 0; n < 19 && valueOffset + n < view.byteLength; n++) {
+              str += String.fromCharCode(view.getUint8(valueOffset + n));
+            }
+            const m = str.match(/(\d{4}):(\d{2}):(\d{2})/);
+            if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+          }
+        }
+        return null;
+      } else if ((marker & 0xFF00) !== 0xFF00) {
+        break;
+      } else {
+        offset += 2 + view.getUint16(offset + 2, false);
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function getPhotoCaptureDate(file) {
+  // JPEGならEXIFを試す（先頭128KBあれば十分）
+  if (file.type === "image/jpeg" || file.type === "image/jpg") {
+    try {
+      const buf = await file.slice(0, 131072).arrayBuffer();
+      const exifDate = readExifDateFromJpeg(buf);
+      if (exifDate) return exifDate;
+    } catch {}
+  }
+  // EXIFが読めない場合はファイルの更新日時（≒端末に保存された日）を使う
+  if (file.lastModified) {
+    const d = new Date(file.lastModified);
+    if (!isNaN(d.getTime())) {
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    }
+  }
+  return null; // 呼び出し側でtodayStr等にフォールバック
+}
+
 const DEFAULT_MEMBERS = [
   { id: "mom", name: "ママ", color: "#FF6B9D", emoji: "🌸" },
   { id: "dad", name: "パパ", color: "#4ECDC4", emoji: "🌊" },
@@ -36,6 +139,17 @@ const DEFAULT_CATEGORIES = [
   { id: "c4", name: "医療", color: "#E74C3C" },
   { id: "c5", name: "学校", color: "#FFD93D" },
   { id: "c6", name: "その他", color: "#9B59B6" },
+];
+
+const DEFAULT_BUDGET_CATEGORIES = [
+  { id: "b1", name: "食費", color: "#FF8C42", icon: "🍙" },
+  { id: "b2", name: "日用品", color: "#6BCB77", icon: "🧴" },
+  { id: "b3", name: "住居・光熱費", color: "#4D96FF", icon: "🏠" },
+  { id: "b4", name: "交通費", color: "#4ECDC4", icon: "🚃" },
+  { id: "b5", name: "医療・健康", color: "#E74C3C", icon: "💊" },
+  { id: "b6", name: "教育・子ども", color: "#FFD93D", icon: "🎒" },
+  { id: "b7", name: "娯楽・趣味", color: "#9B59B6", icon: "🎮" },
+  { id: "b8", name: "その他", color: "#A8A8A8", icon: "📦" },
 ];
 
 const MEMBER_COLORS = [
@@ -361,7 +475,7 @@ function MonthView({
       onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
     >
       {/* 曜日ヘッダー */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", flexShrink:0, borderBottom:`1px solid ${border}` }}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(7,minmax(0,1fr))", flexShrink:0, borderBottom:`1px solid ${border}` }}>
         {orderedDays.map((d,i) => (
           <div key={d} style={{ background:bg, textAlign:"center", lineHeight:"24px", fontSize:"11px", fontWeight:"700",
             color: i===sunIdx?"#FF6B9D": i===satIdx?"#4D96FF":"#9A8FAA" }}>{d}</div>
@@ -379,7 +493,7 @@ function MonthView({
           const { slotMap, slotCols } = weekSlotMaps[w] || { slotMap:{}, slotCols:[] };
 
           return (
-            <div key={w} style={{ flex:1, display:"grid", gridTemplateColumns:"repeat(7,1fr)", position:"relative", borderBottom:`1px solid ${border}` }}>
+            <div key={w} style={{ flex:1, display:"grid", gridTemplateColumns:"repeat(7,minmax(0,1fr))", position:"relative", borderBottom:`1px solid ${border}` }}>
               {/* 日付セル */}
               {Array.from({length:7}, (_,col) => {
                 const cellIdx = w * 7 + col;
@@ -398,10 +512,10 @@ function MonthView({
                 };
                 return (
                   <div key={ds} onClick={handleTap}
-                    style={{ borderRight:`1px solid ${border}`, cursor:"pointer",
+                    style={{ borderRight:`1px solid ${border}`, cursor:"pointer", minWidth:0, overflow:"hidden",
                       background: selectedDate===ds ? themeColor+"33" : isToday ? (darkMode ? themeColor+"77" : themeColor+"44") : holiday ? "#FF6B9D11" : bg,
                       paddingTop:2, paddingLeft:2 }}>
-                    <div style={{ display:"flex", alignItems:"center" }}>
+                    <div style={{ display:"flex", alignItems:"center", minWidth:0 }}>
                       <div style={{
                         width: isToday?26:20, height: isToday?26:20, borderRadius:"50%",
                         display:"flex", alignItems:"center", justifyContent:"center",
@@ -411,7 +525,7 @@ function MonthView({
                         fontWeight: isToday?"900":"400", fontSize: isToday?"13px":"11px",
                         flexShrink:0,
                       }}>{d}</div>
-                      {holiday && <div style={{ fontSize:"7px", color:"#FF6B9D", fontWeight:"600", marginLeft:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{holiday}</div>}
+                      {holiday && <div style={{ fontSize:"7px", color:"#FF6B9D", fontWeight:"600", marginLeft:2, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{holiday}</div>}
                     </div>
                   </div>
                 );
@@ -523,10 +637,11 @@ function DayView({
   selectedDate, getEventsForDate, setShowEventDetail, openAdd,
   bg, bgCard, textPri, textSec, themeColor, themeGrad, border,
   members, DAYS_JP, dayDragX, setDayDragX, dayTransitioning, setDayTransitioning,
-  moveDay, addBtnStyle
+  moveDay, addBtnStyle, getHoliday
 }) {
   const dayEvents = selectedDate ? getEventsForDate(selectedDate) : [];
   const dp = selectedDate ? selectedDate.split("-") : [];
+  const holiday = selectedDate ? getHoliday(selectedDate) : null;
 
   const touchStartX = useRef(null);
   const touchStartY = useRef(null);
@@ -576,13 +691,23 @@ function DayView({
       onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
     >
       {selectedDate && (
-        <div style={{ display:"flex", alignItems:"center", padding:"16px 16px 8px", flexShrink:0 }}>
-          <button onClick={() => moveDay(-1)} style={{ background:"none", border:"none", fontSize:"22px", cursor:"pointer", color:textSec, padding:"0 8px" }}>‹</button>
-          <div style={{ flex:1, textAlign:"center" }}>
-            <span style={{ fontSize:"22px", fontWeight:"800", color:textPri }}>{dp[1]}月{dp[2]}日</span>
-            <span style={{ fontSize:"14px", color:textSec, marginLeft:8 }}>{DAYS_JP[new Date(selectedDate).getDay()]}曜日</span>
+        <div style={{ padding:"16px 16px 8px", flexShrink:0 }}>
+          <div style={{ display:"flex", alignItems:"center" }}>
+            <button onClick={() => moveDay(-1)} style={{ background:"none", border:"none", fontSize:"22px", cursor:"pointer", color:textSec, padding:"0 8px" }}>‹</button>
+            <div style={{ flex:1, textAlign:"center" }}>
+              <span style={{ fontSize:"22px", fontWeight:"800", color:textPri }}>{dp[1]}月{dp[2]}日</span>
+              <span style={{ fontSize:"14px", color:textSec, marginLeft:8 }}>{DAYS_JP[new Date(selectedDate).getDay()]}曜日</span>
+            </div>
+            <button onClick={() => moveDay(1)} style={{ background:"none", border:"none", fontSize:"22px", cursor:"pointer", color:textSec, padding:"0 8px" }}>›</button>
           </div>
-          <button onClick={() => moveDay(1)} style={{ background:"none", border:"none", fontSize:"22px", cursor:"pointer", color:textSec, padding:"0 8px" }}>›</button>
+          {holiday && (
+            <div style={{ textAlign:"center", marginTop:4 }}>
+              <span style={{
+                fontSize:"12px", fontWeight:"700", color:"#FF6B9D",
+                background:"#FF6B9D22", borderRadius:"10px", padding:"2px 10px",
+              }}>🎌 {holiday}</span>
+            </div>
+          )}
         </div>
       )}
       <div style={{
@@ -698,6 +823,28 @@ export default function FamilyCalendar() {
   });
   const themeGrad = `linear-gradient(135deg, ${themeColor} 0%, ${themeColor2} 100%)`;
 
+  // ===== 追加機能：セクション切り替え（カレンダー／写真／家計簿） =====
+  const [section, setSection] = useState("calendar");
+
+  // ----- 写真タイムライン -----
+  const [photos, setPhotos] = useState([]);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [showPhotoDetail, setShowPhotoDetail] = useState(null);
+  const photoFileRef = useRef(null);
+
+  // ----- 家計簿 -----
+  const [budgetCategories, setBudgetCategories] = useState(DEFAULT_BUDGET_CATEGORIES);
+  const [transactions, setTransactions] = useState([]);
+  const [monthlyBudgets, setMonthlyBudgets] = useState({}); // { "2026-05": 300000, ... }
+  const [showMoneyModal, setShowMoneyModal] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState(null);
+  const [moneyForm, setMoneyForm] = useState({ date: todayStr, amount: "", categoryId: "", memo: "", receiptUrl: "" });
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [showIncomeEdit, setShowIncomeEdit] = useState(false);
+  const receiptFileRef = useRef(null);
+
+  const monthKey = `${year}-${String(month+1).padStart(2,"0")}`;
+
   // ダークモード用カラートークン
   const bg      = darkMode ? "#0f1123" : "#fff";
   const bgSub   = darkMode ? "#141830" : "#faf7ff";
@@ -720,6 +867,22 @@ export default function FamilyCalendar() {
         const cVal = await dbGet("family_categories");
         if (cVal) setCategories(JSON.parse(cVal));
       } catch {}
+      try {
+        const pVal = await dbGet("family_photos");
+        if (pVal) setPhotos(JSON.parse(pVal));
+      } catch {}
+      try {
+        const bcVal = await dbGet("budget_categories");
+        if (bcVal) setBudgetCategories(JSON.parse(bcVal));
+      } catch {}
+      try {
+        const tVal = await dbGet("transactions");
+        if (tVal) setTransactions(JSON.parse(tVal));
+      } catch {}
+      try {
+        const mbVal = await dbGet("monthly_budgets");
+        if (mbVal) setMonthlyBudgets(JSON.parse(mbVal));
+      } catch {}
     })();
   }, []);
 
@@ -734,6 +897,153 @@ export default function FamilyCalendar() {
   const saveCategories = async (cats) => {
     try { await dbSet("family_categories", JSON.stringify(cats)); } catch {}
   };
+  const savePhotos = async (ps) => {
+    try { await dbSet("family_photos", JSON.stringify(ps)); } catch {}
+  };
+  const saveBudgetCategories = async (cats) => {
+    try { await dbSet("budget_categories", JSON.stringify(cats)); } catch {}
+  };
+  const saveTransactions = async (txs) => {
+    try { await dbSet("transactions", JSON.stringify(txs)); } catch {}
+  };
+  const saveMonthlyBudgets = async (mb) => {
+    try { await dbSet("monthly_budgets", JSON.stringify(mb)); } catch {}
+  };
+
+  // ===== 写真機能のハンドラー =====
+  const handlePhotoFileSelect = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    setUploadingPhoto(true);
+    try {
+      const newPhotos = [];
+      for (const file of files) {
+        try {
+          const [url, captureDate] = await Promise.all([
+            uploadFile(file, "photos"),
+            getPhotoCaptureDate(file),
+          ]);
+          newPhotos.push({
+            id: "p" + Date.now() + "_" + Math.random().toString(36).slice(2,6),
+            url,
+            date: captureDate || selectedDate || todayStr,
+            members: [], caption: "",
+          });
+        } catch {
+          // 1枚失敗しても残りは続行
+        }
+      }
+      if (newPhotos.length === 0) {
+        showNotif("アップロードに失敗しました");
+        return;
+      }
+      const next = [...newPhotos, ...photos];
+      setPhotos(next);
+      await savePhotos(next);
+      showNotif(newPhotos.length > 1 ? `${newPhotos.length}枚の写真を追加しました📷` : "写真を追加しました📷");
+    } catch (err) {
+      showNotif("アップロードに失敗しました");
+    } finally {
+      setUploadingPhoto(false);
+      if (photoFileRef.current) photoFileRef.current.value = "";
+    }
+  };
+  const updatePhoto = async (id, patch) => {
+    const next = photos.map(p => p.id === id ? { ...p, ...patch } : p);
+    setPhotos(next);
+    await savePhotos(next);
+  };
+  const deletePhoto = async (id) => {
+    const next = photos.filter(p => p.id !== id);
+    setPhotos(next);
+    await savePhotos(next);
+    setShowPhotoDetail(null);
+    showNotif("写真を削除しました");
+  };
+
+  // ===== 家計簿機能のハンドラー =====
+  const openAddTransaction = () => {
+    setEditingTransaction(null);
+    setMoneyForm({ date: todayStr, amount: "", categoryId: "", memo: "", receiptUrl: "" });
+    setShowMoneyModal(true);
+  };
+  const openEditTransaction = (tx) => {
+    setEditingTransaction(tx);
+    setMoneyForm({ ...tx });
+    setShowMoneyModal(true);
+  };
+  const handleReceiptFileSelect = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setOcrLoading(true);
+    try {
+      const [url, captureDate] = await Promise.all([
+        uploadFile(file, "receipts"),
+        getPhotoCaptureDate(file),
+      ]);
+      setMoneyForm(f => ({ ...f, receiptUrl: url }));
+      const result = await ocrReceipt(url);
+
+      // 日付の優先順位：①レシート記載日（OCR） → ②写真の撮影日（EXIF等） → ③登録日（今日 / モーダルを開いた時点の日付）
+      const ocrDate = result.date && String(result.date).trim();
+      const finalDate = ocrDate || captureDate || moneyForm.date || todayStr;
+      const finalAmount = result.amount != null ? String(result.amount) : moneyForm.amount;
+      const finalMemo = result.memo || moneyForm.memo;
+
+      // 重複チェック：同じ日付・金額のレシートが既にあればスキップ
+      // （メモはOCRのたびに表現が微妙に変わりうるため、判定には使わない）
+      const isDuplicate = transactions.some(t =>
+        t.date === finalDate &&
+        Number(t.amount) === Number(finalAmount)
+      );
+      if (isDuplicate) {
+        showNotif("同じ内容のレシートは登録済みのためスキップしました");
+        setShowMoneyModal(false);
+        return;
+      }
+
+      setMoneyForm(f => ({
+        ...f,
+        amount: finalAmount,
+        date: finalDate,
+        memo: finalMemo,
+      }));
+      showNotif("レシートを読み取りました。カテゴリーを選んでください");
+    } catch (err) {
+      showNotif("読み取りに失敗しました。手入力してください");
+    } finally {
+      setOcrLoading(false);
+      if (receiptFileRef.current) receiptFileRef.current.value = "";
+    }
+  };
+  const saveTransaction = async () => {
+    const amt = Number(moneyForm.amount);
+    if (!moneyForm.date || !amt || !moneyForm.categoryId) return;
+    let next;
+    if (editingTransaction) {
+      next = transactions.map(t => t.id === editingTransaction.id ? { ...moneyForm, amount: amt, id: t.id } : t);
+    } else {
+      next = [...transactions, { ...moneyForm, amount: amt, id: "t" + Date.now() }];
+    }
+    setTransactions(next);
+    await saveTransactions(next);
+    setShowMoneyModal(false);
+    showNotif(editingTransaction ? "更新しました✨" : "支出を記録しました🧾");
+  };
+  const deleteTransaction = async (id) => {
+    const next = transactions.filter(t => t.id !== id);
+    setTransactions(next);
+    await saveTransactions(next);
+    setShowMoneyModal(false);
+    showNotif("削除しました");
+  };
+  const setIncomeForMonth = async (key, amount) => {
+    const next = { ...monthlyBudgets, [key]: Number(amount) || 0 };
+    setMonthlyBudgets(next);
+    await saveMonthlyBudgets(next);
+  };
+  const getMonthTransactions = (key) => transactions.filter(t => t.date && t.date.startsWith(key));
+  const getMonthTotal = (key) => getMonthTransactions(key).reduce((s,t) => s + (Number(t.amount)||0), 0);
 
   const showNotif = (msg) => {
     setNotification(msg);
@@ -889,6 +1199,174 @@ export default function FamilyCalendar() {
                   </div>
                 </div>
               ))}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // ===== 写真タイムライン画面（みてね風：日付順グルーピング） =====
+  const PhotosView = () => {
+    const sorted = [...photos].sort((a,b) => b.date.localeCompare(a.date));
+    // 月ごと → 日ごとの2階層でグルーピング（みてね風）
+    const monthGroups = {};
+    sorted.forEach(p => {
+      const ym = p.date.slice(0,7);
+      if (!monthGroups[ym]) monthGroups[ym] = {};
+      const dayGroups = monthGroups[ym];
+      if (!dayGroups[p.date]) dayGroups[p.date] = [];
+      dayGroups[p.date].push(p);
+    });
+    return (
+      <div style={{ flex:1, overflow:"auto", padding:"16px", background:bg }}>
+        {sorted.length===0 ? (
+          <div style={{ textAlign:"center", padding:"48px 0", color:"#C9B8E8" }}>
+            <div style={{ fontSize:"48px", marginBottom:12 }}>📷</div>
+            <div>まだ写真がありません</div>
+            <div style={{ fontSize:"12px", marginTop:8 }}>右下の＋から写真を選んで追加できます</div>
+          </div>
+        ) : Object.entries(monthGroups).map(([ym, dayGroups]) => {
+          const [yy,mm] = ym.split("-").map(Number);
+          return (
+            <div key={ym} style={{ marginBottom:8 }}>
+              {/* 月の見出し */}
+              <div style={{
+                fontWeight:"800", fontSize:"16px", color:"#fff", marginBottom:12,
+                background:themeGrad, borderRadius:"10px", padding:"8px 14px",
+                display:"inline-block",
+              }}>
+                {yy}年{MONTHS_JP[mm-1]}
+              </div>
+              {Object.entries(dayGroups).map(([date, ps]) => {
+                const dp = date.split("-").map(Number);
+                const dow = DAYS_JP[new Date(date).getDay()];
+                return (
+                  <div key={date} style={{ marginBottom:20 }}>
+                    <div style={{ fontWeight:"700", fontSize:"13px", color:textSec, marginBottom:8, paddingLeft:2 }}>
+                      {dp[1]}月{dp[2]}日（{dow}）
+                    </div>
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:6 }}>
+                      {ps.map(p => (
+                        <div key={p.id} onClick={() => setShowPhotoDetail(p)} style={{
+                          position:"relative", paddingBottom:"100%", borderRadius:"12px",
+                          overflow:"hidden", cursor:"pointer", background:bgSub,
+                        }}>
+                          <img src={p.url} alt="" style={{
+                            position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover",
+                          }} />
+                          {p.caption && (
+                            <div style={{
+                              position:"absolute", bottom:0, left:0, right:0,
+                              background:"linear-gradient(transparent, rgba(0,0,0,0.55))",
+                              color:"#fff", fontSize:"10px", padding:"10px 6px 4px",
+                              overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+                            }}>{p.caption}</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // ===== 家計簿画面（マネーフォワード風：月次収支） =====
+  const MoneyView = () => {
+    const monthTx = getMonthTransactions(monthKey).sort((a,b) => b.date.localeCompare(a.date));
+    const total = getMonthTotal(monthKey);
+    const income = monthlyBudgets[monthKey] || 0;
+    const remaining = income - total;
+    const byCategory = {};
+    monthTx.forEach(t => {
+      byCategory[t.categoryId] = (byCategory[t.categoryId]||0) + Number(t.amount||0);
+    });
+    return (
+      <div style={{ flex:1, overflow:"auto", padding:"16px", background:bg }}>
+        {/* 収支サマリー */}
+        <div style={{
+          background:themeGrad, borderRadius:"18px", padding:"18px", marginBottom:16, color:"#fff",
+        }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+            <div style={{ fontSize:"13px", opacity:0.9 }}>{year}年{MONTHS_JP[month]}の収入</div>
+            <button onClick={() => setShowIncomeEdit(true)} style={{
+              background:"rgba(255,255,255,0.25)", border:"none", color:"#fff",
+              borderRadius:"12px", padding:"3px 10px", fontSize:"11px", cursor:"pointer",
+            }}>✏️ 設定</button>
+          </div>
+          <div style={{ fontSize:"22px", fontWeight:"800", marginBottom:12 }}>¥{income.toLocaleString()}</div>
+          <div style={{ display:"flex", justifyContent:"space-between", fontSize:"13px", opacity:0.95, marginBottom:4 }}>
+            <span>支出合計</span><span>¥{total.toLocaleString()}</span>
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between", fontSize:"16px", fontWeight:"800" }}>
+            <span>残り</span><span style={{ color: remaining<0 ? "#FFD6D6" : "#fff" }}>¥{remaining.toLocaleString()}</span>
+          </div>
+        </div>
+
+        {showIncomeEdit && (
+          <div style={{ background:bgCard, borderRadius:"14px", padding:"14px", marginBottom:16, border:`1px solid ${border}` }}>
+            <div style={{ fontSize:"12px", fontWeight:"700", color:textSec, marginBottom:6 }}>今月の収入を設定</div>
+            <div style={{ display:"flex", gap:8 }}>
+              <input type="number" defaultValue={income||""} id="income-input" placeholder="例：300000"
+                style={{ flex:1, padding:"10px 12px", borderRadius:"12px", border:`2px solid ${border}`, fontSize:"15px", boxSizing:"border-box", color:textPri, background:bg }} />
+              <button onClick={() => {
+                const v = document.getElementById("income-input").value;
+                setIncomeForMonth(monthKey, v);
+                setShowIncomeEdit(false);
+              }} style={{ padding:"0 16px", borderRadius:"12px", background:themeGrad, border:"none", color:"#fff", fontWeight:"700", cursor:"pointer" }}>保存</button>
+            </div>
+          </div>
+        )}
+
+        {/* カテゴリー別内訳 */}
+        {Object.keys(byCategory).length > 0 && (
+          <div style={{ marginBottom:16 }}>
+            <div style={{ fontSize:"12px", fontWeight:"700", color:textSec, marginBottom:8 }}>カテゴリー別支出</div>
+            {Object.entries(byCategory).sort((a,b) => b[1]-a[1]).map(([cid, amt]) => {
+              const cat = budgetCategories.find(c => c.id===cid);
+              const pct = total > 0 ? Math.round(amt/total*100) : 0;
+              return (
+                <div key={cid} style={{ marginBottom:8 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", fontSize:"13px", color:textPri, marginBottom:3 }}>
+                    <span>{cat ? `${cat.icon} ${cat.name}` : "未分類"}</span>
+                    <span style={{ fontWeight:"700" }}>¥{amt.toLocaleString()}（{pct}%）</span>
+                  </div>
+                  <div style={{ height:6, borderRadius:3, background:border, overflow:"hidden" }}>
+                    <div style={{ height:"100%", width:`${pct}%`, background:cat?cat.color:"#ccc", borderRadius:3 }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* 取引一覧 */}
+        <div style={{ fontSize:"12px", fontWeight:"700", color:textSec, marginBottom:8 }}>支出履歴</div>
+        {monthTx.length===0 ? (
+          <div style={{ textAlign:"center", padding:"32px 0", color:"#C9B8E8" }}>
+            <div style={{ fontSize:"40px", marginBottom:8 }}>🧾</div>
+            <div>今月の記録はまだありません</div>
+          </div>
+        ) : monthTx.map(t => {
+          const cat = budgetCategories.find(c => c.id===t.categoryId);
+          return (
+            <div key={t.id} onClick={() => openEditTransaction(t)} style={{
+              display:"flex", alignItems:"center", gap:10,
+              background:bgCard, borderRadius:"14px", padding:"12px 14px", marginBottom:8,
+              borderLeft:`4px solid ${cat?cat.color:"#ccc"}`, cursor:"pointer",
+              boxShadow:"0 2px 8px rgba(155,89,182,0.07)",
+            }}>
+              {t.receiptUrl && <img src={t.receiptUrl} alt="" style={{ width:40, height:40, borderRadius:8, objectFit:"cover" }} />}
+              <div style={{ flex:1 }}>
+                <div style={{ fontWeight:"700", color:textPri, fontSize:"14px" }}>{cat ? `${cat.icon} ${cat.name}` : "未分類"}</div>
+                <div style={{ fontSize:"11px", color:textSec }}>{t.date.replace(/-/g,"/")}{t.memo ? " ・ " + t.memo : ""}</div>
+              </div>
+              <div style={{ fontWeight:"800", color:textPri, fontSize:"15px" }}>¥{Number(t.amount).toLocaleString()}</div>
             </div>
           );
         })}
@@ -1247,73 +1725,101 @@ export default function FamilyCalendar() {
         background:themeGrad,
         padding:"0 12px", boxShadow:"0 4px 20px rgba(155,89,182,0.3)",
       }}>
-        {/* 月ナビ + ボタン類を1行に */}
-        <div style={{ display:"flex", alignItems:"center", gap:8, paddingTop:10, paddingBottom:8 }}>
-          <button onClick={prevMonth} style={{ background:"none", border:"none", color:"#fff", fontSize:"22px", cursor:"pointer", padding:"0 4px" }}>‹</button>
-          <div style={{ color:"#fff", fontWeight:"800", fontSize:"18px", flex:1, textAlign:"center" }}>{year}年 {MONTHS_JP[month]}</div>
-          <button onClick={nextMonth} style={{ background:"none", border:"none", color:"#fff", fontSize:"22px", cursor:"pointer", padding:"0 4px" }}>›</button>
-          <button onClick={() => { setYear(today.getFullYear()); setMonth(today.getMonth()); setSelectedDate(todayStr); setView("month"); }}
-            style={{ background:"rgba(255,255,255,0.2)", border:"none", color:"#fff", borderRadius:"10px", padding:"3px 8px", fontSize:"11px", cursor:"pointer" }}>
-            今日
-          </button>
-          {saving && <span style={{ color:"rgba(255,255,255,0.8)", fontSize:"10px" }}>保存中</span>}
-          <button onClick={() => { setShowSettings(true); setEditingMember(null); }} style={{
-            background:"rgba(255,255,255,0.2)", border:"none", color:"#fff",
-            borderRadius:"50%", width:30, height:30, fontSize:"14px", cursor:"pointer",
-            display:"flex", alignItems:"center", justifyContent:"center",
-          }}>⚙️</button>
-          <button onClick={() => openAdd()} style={{
-            background:"rgba(255,255,255,0.25)", border:"1px solid rgba(255,255,255,0.4)",
-            color:"#fff", borderRadius:"16px", padding:"4px 12px", fontSize:"12px",
-            fontWeight:"700", cursor:"pointer",
-          }}>＋</button>
-        </div>
+        {section === "calendar" && (
+          <>
+            {/* 月ナビ + ボタン類を1行に */}
+            <div style={{ display:"flex", alignItems:"center", gap:8, paddingTop:10, paddingBottom:8 }}>
+              <button onClick={prevMonth} style={{ background:"none", border:"none", color:"#fff", fontSize:"22px", cursor:"pointer", padding:"0 4px" }}>‹</button>
+              <div style={{ color:"#fff", fontWeight:"800", fontSize:"18px", flex:1, textAlign:"center" }}>{year}年 {MONTHS_JP[month]}</div>
+              <button onClick={nextMonth} style={{ background:"none", border:"none", color:"#fff", fontSize:"22px", cursor:"pointer", padding:"0 4px" }}>›</button>
+              <button onClick={() => { setYear(today.getFullYear()); setMonth(today.getMonth()); setSelectedDate(todayStr); setView("month"); }}
+                style={{ background:"rgba(255,255,255,0.2)", border:"none", color:"#fff", borderRadius:"10px", padding:"3px 8px", fontSize:"11px", cursor:"pointer" }}>
+                今日
+              </button>
+              {saving && <span style={{ color:"rgba(255,255,255,0.8)", fontSize:"10px" }}>保存中</span>}
+              <button onClick={() => { setShowSettings(true); setEditingMember(null); }} style={{
+                background:"rgba(255,255,255,0.2)", border:"none", color:"#fff",
+                borderRadius:"50%", width:30, height:30, fontSize:"14px", cursor:"pointer",
+                display:"flex", alignItems:"center", justifyContent:"center",
+              }}>⚙️</button>
+              <button onClick={() => openAdd()} style={{
+                background:"rgba(255,255,255,0.25)", border:"1px solid rgba(255,255,255,0.4)",
+                color:"#fff", borderRadius:"16px", padding:"4px 12px", fontSize:"12px",
+                fontWeight:"700", cursor:"pointer",
+              }}>＋</button>
+            </div>
 
-        {/* メンバーフィルター（複数選択） */}
-        <div style={{ display:"flex", gap:5, paddingBottom:8, overflowX:"auto" }}>
-          <button onClick={() => updateFilterMembers([])} style={{
-            background: filterMembers.length===0?"rgba(255,255,255,0.95)":"rgba(255,255,255,0.2)",
-            color: filterMembers.length===0?themeColor:"#fff",
-            border:"none", borderRadius:"20px", padding:"3px 10px", fontSize:"11px",
-            fontWeight:"700", cursor:"pointer", whiteSpace:"nowrap", flexShrink:0,
-          }}>全員</button>
-          {members.map(m => {
-            const on = filterMembers.includes(m.id);
-            return (
-              <button key={m.id} onClick={() => updateFilterMembers(
-                on ? filterMembers.filter(x => x!==m.id) : [...filterMembers, m.id]
-              )} style={{
-                background: on?"rgba(255,255,255,0.95)":"rgba(255,255,255,0.2)",
-                color: on?m.color:"#fff",
+            {/* メンバーフィルター（複数選択） */}
+            <div style={{ display:"flex", gap:5, paddingBottom:8, overflowX:"auto" }}>
+              <button onClick={() => updateFilterMembers([])} style={{
+                background: filterMembers.length===0?"rgba(255,255,255,0.95)":"rgba(255,255,255,0.2)",
+                color: filterMembers.length===0?themeColor:"#fff",
                 border:"none", borderRadius:"20px", padding:"3px 10px", fontSize:"11px",
                 fontWeight:"700", cursor:"pointer", whiteSpace:"nowrap", flexShrink:0,
-              }}>{m.emoji} {m.name}</button>
-            );
-          })}
-        </div>
+              }}>全員</button>
+              {members.map(m => {
+                const on = filterMembers.includes(m.id);
+                return (
+                  <button key={m.id} onClick={() => updateFilterMembers(
+                    on ? filterMembers.filter(x => x!==m.id) : [...filterMembers, m.id]
+                  )} style={{
+                    background: on?"rgba(255,255,255,0.95)":"rgba(255,255,255,0.2)",
+                    color: on?m.color:"#fff",
+                    border:"none", borderRadius:"20px", padding:"3px 10px", fontSize:"11px",
+                    fontWeight:"700", cursor:"pointer", whiteSpace:"nowrap", flexShrink:0,
+                  }}>{m.emoji} {m.name}</button>
+                );
+              })}
+            </div>
 
-        {/* タブ */}
-        <div style={{ display:"flex", gap:2 }}>
-          {[["month","月"],["day","日"],["list","一覧"]].map(([v,label]) => (
-            <button key={v} onClick={() => {
-              if (v === "day" && !selectedDate) {
-                setSelectedDate(todayStr);
-                setYear(today.getFullYear());
-                setMonth(today.getMonth());
-              }
-              setView(v);
-            }} style={{
-              flex:1, background: view===v?"rgba(255,255,255,0.95)":"transparent",
-              color: view===v?themeColor:"rgba(255,255,255,0.8)",
-              border:"none", padding:"7px 0", fontSize:"13px", fontWeight:"700",
-              cursor:"pointer", borderRadius:"12px 12px 0 0", transition:"all 0.2s",
-            }}>{label}表示</button>
-          ))}
-        </div>
+            {/* タブ */}
+            <div style={{ display:"flex", gap:2 }}>
+              {[["month","月"],["day","日"],["list","一覧"]].map(([v,label]) => (
+                <button key={v} onClick={() => {
+                  if (v === "day" && !selectedDate) {
+                    setSelectedDate(todayStr);
+                    setYear(today.getFullYear());
+                    setMonth(today.getMonth());
+                  }
+                  setView(v);
+                }} style={{
+                  flex:1, background: view===v?"rgba(255,255,255,0.95)":"transparent",
+                  color: view===v?themeColor:"rgba(255,255,255,0.8)",
+                  border:"none", padding:"7px 0", fontSize:"13px", fontWeight:"700",
+                  cursor:"pointer", borderRadius:"12px 12px 0 0", transition:"all 0.2s",
+                }}>{label}表示</button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {section === "photos" && (
+          <div style={{ display:"flex", alignItems:"center", gap:8, padding:"12px 0" }}>
+            <div style={{ color:"#fff", fontWeight:"800", fontSize:"18px", flex:1 }}>📷 写真タイムライン</div>
+            <button onClick={() => { setShowSettings(true); setEditingMember(null); }} style={{
+              background:"rgba(255,255,255,0.2)", border:"none", color:"#fff",
+              borderRadius:"50%", width:30, height:30, fontSize:"14px", cursor:"pointer",
+              display:"flex", alignItems:"center", justifyContent:"center",
+            }}>⚙️</button>
+          </div>
+        )}
+
+        {section === "money" && (
+          <div style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 0" }}>
+            <button onClick={prevMonth} style={{ background:"none", border:"none", color:"#fff", fontSize:"22px", cursor:"pointer", padding:"0 4px" }}>‹</button>
+            <div style={{ color:"#fff", fontWeight:"800", fontSize:"16px", flex:1, textAlign:"center" }}>💰 {year}年{MONTHS_JP[month]}の家計簿</div>
+            <button onClick={nextMonth} style={{ background:"none", border:"none", color:"#fff", fontSize:"22px", cursor:"pointer", padding:"0 4px" }}>›</button>
+            <button onClick={() => { setShowSettings(true); setEditingMember(null); }} style={{
+              background:"rgba(255,255,255,0.2)", border:"none", color:"#fff",
+              borderRadius:"50%", width:30, height:30, fontSize:"14px", cursor:"pointer",
+              display:"flex", alignItems:"center", justifyContent:"center",
+            }}>⚙️</button>
+          </div>
+        )}
       </div>
 
       <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", background:bg, width:"100%", boxSizing:"border-box" }}>
-        {view==="month" && <MonthView
+        {section === "calendar" && view==="month" && <MonthView
           firstDay={firstDay} daysInMonth={daysInMonth} dateStr={dateStr}
           todayStr={todayStr} selectedDate={selectedDate} setSelectedDate={setSelectedDate}
           getEventsForDate={getEventsForDate} setView={setView}
@@ -1324,7 +1830,7 @@ export default function FamilyCalendar() {
           showBadgeEmoji={showBadgeEmoji} setShowEventDetail={setShowEventDetail}
           weekStartsMonday={weekStartsMonday} events={events} darkMode={darkMode}
         />}
-        {view==="day" && (
+        {section === "calendar" && view==="day" && (
           selectedDate
             ? <DayView
                 selectedDate={selectedDate}
@@ -1336,24 +1842,52 @@ export default function FamilyCalendar() {
                 members={members} DAYS_JP={DAYS_JP}
                 dayDragX={dayDragX} setDayDragX={setDayDragX}
                 dayTransitioning={dayTransitioning} setDayTransitioning={setDayTransitioning}
-                moveDay={moveDay} addBtnStyle={addBtnStyle}
+                moveDay={moveDay} addBtnStyle={addBtnStyle} getHoliday={getHoliday}
               />
             : <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", color:"#C9B8E8", flexDirection:"column", gap:12 }}>
                 <div style={{ fontSize:"48px" }}>📅</div>
                 <div>月表示から日付を選択してください</div>
               </div>
         )}
-        {view==="list" && <ListView />}
+        {section === "calendar" && view==="list" && <ListView />}
+        {section === "photos" && <PhotosView />}
+        {section === "money" && <MoneyView />}
       </div>
 
-      <button onClick={() => openAdd(selectedDate || todayStr)} style={{
-        position:"fixed", bottom:24, right:24,
+      {/* 下部ナビゲーション（カレンダー／写真／家計簿） */}
+      <div style={{
+        display:"flex", borderTop:`1px solid ${border}`, background:bgCard,
+        paddingBottom:"env(safe-area-inset-bottom, 0px)", flexShrink:0,
+      }}>
+        {[["calendar","📅","カレンダー"],["photos","📷","写真"],["money","💰","家計簿"]].map(([key,icon,label]) => (
+          <button key={key} onClick={() => setSection(key)} style={{
+            flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:2,
+            padding:"8px 0", background:"none", border:"none", cursor:"pointer",
+            color: section===key ? themeColor : textSec,
+          }}>
+            <span style={{ fontSize:"20px" }}>{icon}</span>
+            <span style={{ fontSize:"10px", fontWeight:"700" }}>{label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* 写真アップロード用の隠しinput */}
+      <input ref={photoFileRef} type="file" accept="image/*" multiple
+        style={{ display:"none" }} onChange={handlePhotoFileSelect} />
+
+      <button onClick={() => {
+        if (section === "calendar") openAdd(selectedDate || todayStr);
+        else if (section === "photos") photoFileRef.current && photoFileRef.current.click();
+        else if (section === "money") openAddTransaction();
+      }} disabled={uploadingPhoto} style={{
+        position:"fixed", bottom:76, right:24,
         width:56, height:56, borderRadius:"50%",
         background:themeGrad,
         border:"none", color:"#fff", fontSize:"28px", cursor:"pointer",
         boxShadow:"0 6px 24px rgba(155,89,182,0.5)",
         display:"flex", alignItems:"center", justifyContent:"center", zIndex:100,
-      }}>＋</button>
+        opacity: uploadingPhoto ? 0.6 : 1,
+      }}>{uploadingPhoto ? "…" : "＋"}</button>
 
       {notification && (
         <div style={{
@@ -1627,6 +2161,159 @@ export default function FamilyCalendar() {
                 border:"none", color:"#fff", fontWeight:"700", fontSize:"15px", cursor:"pointer",
                 boxShadow:"0 4px 15px rgba(155,89,182,0.3)",
               }}>{editingEvent ? "更新する" : "追加する"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 写真詳細モーダル */}
+      {showPhotoDetail && (
+        <div style={{
+          position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:300,
+          display:"flex", alignItems:"flex-end",
+        }} onClick={() => setShowPhotoDetail(null)}>
+          <div style={{
+            background:bgCard, borderRadius:"24px 24px 0 0", width:"100%",
+            maxHeight:"90vh", overflowY:"auto", boxSizing:"border-box",
+          }} onClick={e => e.stopPropagation()}>
+            <img src={showPhotoDetail.url} alt="" style={{ width:"100%", maxHeight:"50vh", objectFit:"contain", background:"#000" }} />
+            <div style={{ padding:"16px 20px 32px" }}>
+              <input
+                value={showPhotoDetail.date}
+                onChange={e => setShowPhotoDetail(p => ({ ...p, date: e.target.value }))}
+                onBlur={e => updatePhoto(showPhotoDetail.id, { date: e.target.value })}
+                type="date"
+                style={{ padding:"8px 12px", borderRadius:"12px", border:`2px solid ${border}`, fontSize:"14px", marginBottom:12, color:textPri, background:bg }} />
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12 }}>
+                {members.map(m => {
+                  const on = (showPhotoDetail.members||[]).includes(m.id);
+                  return (
+                    <button key={m.id} onClick={() => {
+                      const nextMembers = on ? showPhotoDetail.members.filter(x=>x!==m.id) : [...(showPhotoDetail.members||[]), m.id];
+                      setShowPhotoDetail(p => ({ ...p, members: nextMembers }));
+                      updatePhoto(showPhotoDetail.id, { members: nextMembers });
+                    }} style={{
+                      padding:"5px 12px", borderRadius:"20px", border:"2px solid",
+                      borderColor: on ? m.color : border,
+                      background: on ? m.color+"22" : bg,
+                      color: on ? m.color : textSec,
+                      fontWeight:"700", fontSize:"12px", cursor:"pointer",
+                    }}>{m.emoji} {m.name}</button>
+                  );
+                })}
+              </div>
+              <textarea
+                value={showPhotoDetail.caption||""}
+                placeholder="ひとことメモ"
+                onChange={e => setShowPhotoDetail(p => ({ ...p, caption: e.target.value }))}
+                onBlur={e => updatePhoto(showPhotoDetail.id, { caption: e.target.value })}
+                rows={2}
+                style={{ width:"100%", padding:"10px 14px", borderRadius:"12px", border:`2px solid ${border}`, fontSize:"14px", boxSizing:"border-box", marginBottom:16, color:textPri, background:bg, resize:"none" }} />
+              <button onClick={() => deletePhoto(showPhotoDetail.id)} style={{
+                width:"100%", padding:"12px", borderRadius:"14px",
+                background:"#fff", border:"2px solid #ffcccc", color:"#e74c3c",
+                fontWeight:"700", fontSize:"14px", cursor:"pointer",
+              }}>🗑 この写真を削除</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 家計簿：支出追加・編集モーダル */}
+      {showMoneyModal && (
+        <div style={{
+          position:"fixed", inset:0, background:"rgba(61,43,94,0.5)", zIndex:300,
+          display:"flex", alignItems:"flex-end", backdropFilter:"blur(4px)",
+        }} onClick={() => setShowMoneyModal(false)}>
+          <div style={{
+            background:bgCard, borderRadius:"24px 24px 0 0", width:"100%",
+            maxHeight:"90vh", overflowY:"auto", padding:"24px 20px 40px", boxSizing:"border-box",
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontWeight:"800", fontSize:"18px", color:textPri, marginBottom:16 }}>
+              {editingTransaction ? "支出を編集" : "支出を記録"}
+            </div>
+
+            {/* レシート撮影・OCR */}
+            <div style={{ marginBottom:16 }}>
+              <input ref={receiptFileRef} type="file" accept="image/*" capture="environment"
+                style={{ display:"none" }} onChange={handleReceiptFileSelect} />
+              {moneyForm.receiptUrl ? (
+                <img src={moneyForm.receiptUrl} alt="" style={{ width:"100%", maxHeight:180, objectFit:"contain", borderRadius:"14px", background:bgSub }} />
+              ) : (
+                <button onClick={() => receiptFileRef.current && receiptFileRef.current.click()} disabled={ocrLoading} style={{
+                  width:"100%", padding:"20px", borderRadius:"14px", border:`2px dashed ${border}`,
+                  background:bgSub, color:textSec, fontWeight:"700", fontSize:"14px", cursor:"pointer",
+                }}>{ocrLoading ? "🧾 レシートを読み取り中…" : "📷 レシートを撮影して自動入力"}</button>
+              )}
+              {moneyForm.receiptUrl && (
+                <button onClick={() => receiptFileRef.current && receiptFileRef.current.click()} disabled={ocrLoading} style={{
+                  marginTop:8, width:"100%", padding:"8px", borderRadius:"12px", border:`1px solid ${border}`,
+                  background:"none", color:textSec, fontWeight:"700", fontSize:"12px", cursor:"pointer",
+                }}>{ocrLoading ? "読み取り中…" : "撮り直す"}</button>
+              )}
+            </div>
+
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:"12px", fontWeight:"700", color:textSec, marginBottom:6 }}>金額</div>
+              <input type="number" value={moneyForm.amount} onChange={e => setMoneyForm(f => ({ ...f, amount:e.target.value }))}
+                placeholder="例：1200" style={{
+                  width:"100%", padding:"12px 16px", borderRadius:"14px",
+                  border:`2px solid ${border}`, fontSize:"18px", fontWeight:"700", outline:"none",
+                  boxSizing:"border-box", color:textPri, background:bg,
+                }} />
+            </div>
+
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:"12px", fontWeight:"700", color:textSec, marginBottom:6 }}>日付</div>
+              <input type="date" value={moneyForm.date} onChange={e => setMoneyForm(f => ({ ...f, date:e.target.value }))}
+                style={{
+                  width:"100%", padding:"12px 16px", borderRadius:"14px",
+                  border:`2px solid ${border}`, fontSize:"15px", outline:"none",
+                  boxSizing:"border-box", color:textPri, background:bg,
+                }} />
+            </div>
+
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:"12px", fontWeight:"700", color:textSec, marginBottom:8 }}>カテゴリー（自分で選択）</div>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                {budgetCategories.map(cat => (
+                  <button key={cat.id} onClick={() => setMoneyForm(f => ({ ...f, categoryId:cat.id }))} style={{
+                    padding:"6px 14px", borderRadius:"20px", border:"2px solid",
+                    borderColor: moneyForm.categoryId===cat.id ? cat.color : border,
+                    background: moneyForm.categoryId===cat.id ? cat.color : bg,
+                    color: moneyForm.categoryId===cat.id ? "#fff" : textSec,
+                    fontWeight:"700", fontSize:"13px", cursor:"pointer",
+                  }}>{cat.icon} {cat.name}</button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginBottom:24 }}>
+              <div style={{ fontSize:"12px", fontWeight:"700", color:textSec, marginBottom:6 }}>メモ</div>
+              <input value={moneyForm.memo} onChange={e => setMoneyForm(f => ({ ...f, memo:e.target.value }))}
+                placeholder="例：スーパーで買い物" style={{
+                  width:"100%", padding:"12px 16px", borderRadius:"14px",
+                  border:`2px solid ${border}`, fontSize:"14px", outline:"none",
+                  boxSizing:"border-box", color:textPri, background:bg,
+                }} />
+            </div>
+
+            <div style={{ display:"flex", gap:10 }}>
+              {editingTransaction && (
+                <button onClick={() => deleteTransaction(editingTransaction.id)} style={{
+                  flex:1, padding:"14px", borderRadius:"16px",
+                  background:"#fff", border:"2px solid #ffcccc", color:"#e74c3c",
+                  fontWeight:"700", fontSize:"15px", cursor:"pointer",
+                }}>🗑 削除</button>
+              )}
+              <button onClick={saveTransaction} disabled={!moneyForm.amount || !moneyForm.date || !moneyForm.categoryId} style={{
+                flex:2, padding:"14px", borderRadius:"16px",
+                background:themeGrad,
+                border:"none", color:"#fff", fontWeight:"700", fontSize:"15px",
+                cursor: (!moneyForm.amount || !moneyForm.date || !moneyForm.categoryId) ? "not-allowed" : "pointer",
+                opacity: (!moneyForm.amount || !moneyForm.date || !moneyForm.categoryId) ? 0.5 : 1,
+                boxShadow:"0 4px 15px rgba(155,89,182,0.3)",
+              }}>{editingTransaction ? "更新する" : "記録する"}</button>
             </div>
           </div>
         </div>
